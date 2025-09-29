@@ -13,6 +13,9 @@ bot_token: your_bot_token
 # allowed_user （必填）
 # 授权可以使用该bot的user_id，可以通过@getidsbot获取
 # 数字类型不要引号
+# 支持单个用户ID或多个用户ID列表
+# 单个用户: allowed_user: 123456789
+# 多个用户: allowed_user: [123456789, 987654321, 555666777]
 allowed_user: your_user_id
 
 # 机器人名称 例如：@your_bot_name 

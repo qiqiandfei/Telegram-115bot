@@ -38,16 +38,38 @@ async def start_d_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not init.check_user(usr_id):
         await update.message.reply_text("⚠️ 对不起，您无权使用115机器人！")
         return ConversationHandler.END
-    magnet_link = update.message.text.strip()
-    context.user_data["link"] = magnet_link  # 将用户参数存储起来
-    init.logger.info(f"download link: {magnet_link}")
-    dl_url_type = is_valid_link(magnet_link)
-    # 检查链接格式是否正确
-    if dl_url_type == DownloadUrlType.UNKNOWN:
-        await update.message.reply_text("⚠️ 下载链接格式错误，请修改后重试！")
+
+    message_text = update.message.text.strip()
+
+    # 解析多个磁力链接（按空格和换行分割，自动提取有效链接）
+    # 先按换行分割，再按空格分割，获取所有可能的片段
+    fragments = []
+    for line in message_text.split('\n'):
+        # 每行按空格分割
+        fragments.extend(line.split())
+
+    # 从所有片段中提取有效链接
+    valid_links = []
+    for fragment in fragments:
+        fragment = fragment.strip()
+        if not fragment:
+            continue
+        dl_url_type = is_valid_link(fragment)
+        if dl_url_type != DownloadUrlType.UNKNOWN:
+            valid_links.append({"link": fragment, "type": dl_url_type})
+
+    # 检查是否有有效链接
+    if not valid_links:
+        await update.message.reply_text("⚠️ 未找到有效的下载链接，请检查格式后重试！")
         return ConversationHandler.END
-    # 保存下载类型到context.user_data
-    context.user_data["dl_url_type"] = dl_url_type
+
+    # 自动忽略无关信息，只提示找到的有效链接数量
+    init.logger.info(f"从输入中提取到 {len(valid_links)} 个有效下载链接")
+
+    # 保存所有有效链接到context.user_data
+    context.user_data["links"] = valid_links
+    context.user_data["total_links"] = len(valid_links)
+    init.logger.info(f"download links count: {len(valid_links)}")
     # 显示主分类（电影/剧集）
     keyboard = [
         [InlineKeyboardButton(f"📁 {category['display_name']}", callback_data=category['name'])] for category in
@@ -59,7 +81,12 @@ async def start_d_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(f"📁 上次保存: {last_save_path}", callback_data="last_save_path")])
     keyboard.append([InlineKeyboardButton("取消", callback_data="cancel")])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="❓请选择要保存到哪个分类：",
+
+    # 显示链接数量信息
+    link_count = len(valid_links)
+    message_text = f"📥 检测到 {link_count} 个下载链接\n\n❓请选择要保存到哪个分类："
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=message_text,
                                    reply_markup=reply_markup)
     return SELECT_MAIN_CATEGORY
 
@@ -74,13 +101,14 @@ async def select_main_category(update: Update, context: ContextTypes.DEFAULT_TYP
     elif query_data == "last_save_path":
         if hasattr(init, 'bot_session') and "movie_last_save" in init.bot_session:
             last_save_path = init.bot_session["movie_last_save"]
-            link = context.user_data["link"]
+            links = context.user_data["links"]
             user_id = update.effective_user.id
-            
-            await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
-            
-            # 使用全局线程池异步执行下载任务
-            download_executor.submit(download_task, link, last_save_path, user_id)
+            total_count = len(links)
+
+            await query.edit_message_text(f"✅ 已为您添加 {total_count} 个下载任务到队列！\n请稍后~")
+
+            # 使用批量下载处理（减少API调用频率）
+            download_executor.submit(download_tasks_batch, links, last_save_path, user_id)
             return ConversationHandler.END
         else:
             await query.edit_message_text("❌ 未找到最后一次保存路径，请重新选择分类")
@@ -113,17 +141,18 @@ async def select_sub_category(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not hasattr(init, 'bot_session'):
         init.bot_session = {}
     init.bot_session['movie_last_save'] = selected_path
-    
+
     if selected_path == "cancel":
         return await quit_conversation(update, context)
-    link = context.user_data["link"]
+    links = context.user_data["links"]
     selected_main_category = context.user_data["selected_main_category"]
     user_id = update.effective_user.id
-    
-    await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
-    
-    # 使用全局线程池异步执行下载任务
-    download_executor.submit(download_task, link, selected_path, user_id)
+    total_count = len(links)
+
+    await query.edit_message_text(f"✅ 已为您添加 {total_count} 个下载任务到队列！\n请稍后~")
+
+    # 使用批量下载处理（减少API调用频率）
+    download_executor.submit(download_tasks_batch, links, selected_path, user_id)
     return ConversationHandler.END
 
 
@@ -270,30 +299,246 @@ def save_failed_download_to_db(title, magnet, save_path):
             # 检查是否已存在相同的任务
             check_sql = "SELECT * FROM offline_task WHERE magnet = ? AND save_path = ? AND title = ?"
             existing = sqlite.query_one(check_sql, (magnet, save_path, title))
-            
+
             if not existing:
                 sql = "INSERT INTO offline_task (title, magnet, save_path) VALUES (?, ?, ?)"
                 sqlite.execute_sql(sql, (title, magnet, save_path))
                 init.logger.info(f"[{title}]已添加到重试列表")
     except Exception as e:
         raise str(e)
-    
-    
-def download_task(link, selected_path, user_id):
-    """异步下载任务"""
+
+
+def process_successful_download(link, selected_path, user_id, resource_name, task_index, total_count):
+    """处理下载成功的任务"""
     from app.utils.message_queue import add_task_to_queue
-    
+
+    progress_info = f"[{task_index}/{total_count}]"
+    init.logger.info(f"{progress_info} {resource_name} 开始处理下载结果")
+
+    # 处理下载结果
+    final_path = f"{selected_path}/{resource_name}"
+    if init.openapi_115.is_directory(final_path):
+        # 如果下载的内容是目录，清除垃圾文件
+        init.openapi_115.auto_clean(final_path)
+    else:
+        # 如果下载的内容是文件，为文件套一个文件夹
+        temp_folder = "temp"
+        init.openapi_115.create_dir_for_file(selected_path, temp_folder)
+        # 移动文件到临时目录
+        init.openapi_115.move_file(f"{selected_path}/{resource_name}", f"{selected_path}/{temp_folder}")
+        final_path = f"{selected_path}/{temp_folder}"
+        resource_name = temp_folder
+
+    # 获取文件列表并创建STRM文件
+    file_list = init.openapi_115.get_files_from_dir(final_path)
+    create_strm_file(final_path, file_list)
+
+    # 当有2个及以上链接时，跳过TMDB名称指定提示，直接完成
+    if total_count >= 2:
+        # 批量下载时不提示重命名，直接通知下载完成
+        progress_text = f"{progress_info} "
+        message = f"✅ {progress_text}电影\\[`{resource_name}`\\]离线下载完成\\!"
+
+        # 通知Emby扫库
+        notice_emby_scan_library()
+
+        add_task_to_queue(user_id, None, message=message)
+        init.logger.info(f"{progress_info} 批量下载，跳过重命名提示")
+    else:
+        # 单个链接时，提供重命名选项
+        # 为避免callback_data长度限制，使用时间戳作为唯一标识符
+        task_id = str(int(time.time() * 1000))  # 毫秒时间戳作为唯一ID
+
+        # 将任务数据存储到全局字典中（临时存储）
+        if not hasattr(init, 'pending_tasks'):
+            init.pending_tasks = {}
+
+        init.pending_tasks[task_id] = {
+            "user_id": user_id,
+            "action": "manual_rename",
+            "final_path": final_path,
+            "resource_name": resource_name,
+            "selected_path": selected_path,
+            "link": link,
+            "add2retry": False
+        }
+
+        # 发送下载成功通知，包含选择按钮
+        keyboard = [
+            [InlineKeyboardButton("指定标准的TMDB名称", callback_data=f"rename_{task_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        message = f"✅ 电影\\[`{resource_name}`\\]离线下载完成\\!\n\n便于削刮，请为资源指定TMDB的标准名称！"
+
+        add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
+
+
+def process_failed_download(link, selected_path, user_id, resource_name, task_index, total_count):
+    """处理下载失败的任务"""
+    from app.utils.message_queue import add_task_to_queue
+
+    progress_info = f"[{task_index}/{total_count}]"
+
+    # 下载超时，删除任务并提供选择
+    init.openapi_115.clear_failed_task(link)
+    timeout_message = f"❌ {progress_info} {resource_name} 离线下载超时" if resource_name else f"❌ {progress_info} 离线下载超时"
+    init.logger.warn(timeout_message)
+
+    # 当有2个及以上链接时，跳过重命名提示，直接添加到重试列表
+    if total_count >= 2:
+        # 批量下载失败时，直接添加到重试列表，不提示用户
+        title = resource_name if resource_name else f"未知资源_{task_index}"
+        save_failed_download_to_db(title, link, selected_path)
+
+        failure_text = f"{progress_info} "
+        # 截断过长的链接用于显示
+        display_link = link[:100] + "..." if len(link) > 100 else link
+        message = f"❌ {failure_text}\\[`{resource_name}`\\] 离线下载超时\n\n已自动添加到重试列表"
+
+        add_task_to_queue(user_id, None, message=message)
+        init.logger.info(f"{progress_info} 批量下载失败，已自动添加到重试列表")
+    else:
+        # 单个链接失败时，提供重命名并添加到重试列表的选项
+        # 为失败重试也使用时间戳ID
+        retry_task_id = str(int(time.time() * 1000))
+
+        # 将重试任务数据存储到全局字典中
+        if not hasattr(init, 'pending_tasks'):
+            init.pending_tasks = {}
+
+        init.pending_tasks[retry_task_id] = {
+            "user_id": user_id,
+            "action": "retry_download",
+            "selected_path": selected_path,
+            "resource_name": resource_name if resource_name else "未知资源",
+            "link": link,
+            "add2retry": True
+        }
+
+        # 提供重试选项
+        keyboard = [
+            [InlineKeyboardButton("指定TMDB名称并添加到重试列表", callback_data=f"rename_{retry_task_id}")],
+            [InlineKeyboardButton("取消", callback_data="cancel_download")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # 截断过长的链接
+        display_link = link[:600] + "..." if len(link) > 600 else link
+        message = f"`{display_link}`\n\n😭 离线下载超时，请选择后续操作："
+
+        add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
+
+
+def download_tasks_batch(links, selected_path, user_id):
+    """批量下载任务处理（减少API调用频率）"""
+    from app.utils.message_queue import add_task_to_queue
+
+    total_count = len(links)
+    init.logger.info(f"开始批量处理 {total_count} 个下载任务")
+
+    # 第一步：批量提交所有磁力链接
+    submitted_tasks = []
+    for i, link_info in enumerate(links, 1):
+        link = link_info["link"]
+        init.logger.info(f"[{i}/{total_count}] 提交离线任务: {link[:80]}...")
+
+        offline_success = init.openapi_115.offline_download_specify_path(link, selected_path)
+        if offline_success:
+            submitted_tasks.append({
+                "link": link,
+                "index": i,
+                "submitted": True
+            })
+        else:
+            error_message = f"❌ [{i}/{total_count}] 提交离线任务失败！"
+            add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=error_message)
+            submitted_tasks.append({
+                "link": link,
+                "index": i,
+                "submitted": False
+            })
+        time.sleep(2)  # 提交间隔2秒
+
+    if not submitted_tasks:
+        init.logger.error("所有任务提交失败")
+        return
+
+    # 第二步：等待固定时间（300秒 = 5分钟）
+    init.logger.info(f"已提交 {len(submitted_tasks)} 个任务，等待300秒后检查状态...")
+    time.sleep(60)
+
+    # 第三步：只调用一次API获取所有任务状态
+    init.logger.info("开始检查所有任务状态...")
+    offline_task_status = init.openapi_115.get_offline_tasks()
+
+    if not offline_task_status:
+        init.logger.error("无法获取离线任务状态")
+        add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png",
+                         message="❌ 无法获取离线任务状态，请稍后手动检查")
+        return
+
+    # 第四步：批量处理每个任务的结果
+    for task_info in submitted_tasks:
+        if not task_info["submitted"]:
+            continue
+
+        link = task_info["link"]
+        task_index = task_info["index"]
+        progress_info = f"[{task_index}/{total_count}]"
+
+        # 在API返回的任务列表中查找匹配的任务
+        download_success = False
+        resource_name = ""
+
+        for task in offline_task_status:
+            if task.get('url') == link:
+                resource_name = task.get('name', '')
+                if task.get('status') == 2 and task.get('percentDone') == 100:
+                    download_success = True
+                    init.logger.info(f"{progress_info} {resource_name} 离线下载成功！")
+                else:
+                    init.logger.warn(f"{progress_info} {resource_name} 离线下载超时或失败")
+                break
+
+        if download_success:
+            # 处理下载成功的任务
+            process_successful_download(link, selected_path, user_id, resource_name,
+                                       task_index, total_count)
+        else:
+            # 处理下载失败的任务
+            process_failed_download(link, selected_path, user_id, resource_name,
+                                   task_index, total_count)
+
+        # 添加小延时，避免时间戳ID冲突
+        time.sleep(0.1)
+
+    # 第五步：清除云端任务（批量清理一次）
+    init.openapi_115.clear_cloud_task()
+    init.logger.info(f"批量下载任务处理完成，共 {total_count} 个任务")
+
+
+def download_task(link, selected_path, user_id, task_index=1, total_tasks=1):
+    """异步下载任务（单个任务使用，已弃用，保留用于兼容）"""
+    from app.utils.message_queue import add_task_to_queue
+
     try:
+        # 添加任务进度信息到日志和通知
+        progress_info = f"[{task_index}/{total_tasks}]" if total_tasks > 1 else ""
+        init.logger.info(f"开始处理下载任务 {progress_info}: {link}")
+
         offline_success = init.openapi_115.offline_download_specify_path(link, selected_path)
         if not offline_success:
-            add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=f"❌ 离线遇到错误！")
+            error_message = f"❌ {progress_info} 离线遇到错误！" if progress_info else "❌ 离线遇到错误！"
+            add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=error_message)
             return
-            
+
         # 检查下载状态
         download_success, resource_name = init.openapi_115.check_offline_download_success(link)
-        
+
         if download_success:
-            init.logger.info(f"✅ {resource_name} 离线下载成功！")
+            success_message = f"✅ {progress_info} {resource_name} 离线下载成功！" if progress_info else f"✅ {resource_name} 离线下载成功！"
+            init.logger.info(success_message)
             time.sleep(1)
             
             # 处理下载结果
@@ -332,14 +577,18 @@ def download_task(link, selected_path, user_id):
                 [InlineKeyboardButton("指定标准的TMDB名称", callback_data=f"rename_{task_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            message = f"✅ 电影\\[`{resource_name}`\\]离线下载完成\\!\n\n便于削刮，请为资源指定TMDB的标准名称！"
-            
+
+            # 添加进度信息到成功消息
+            progress_text = f" {progress_info}" if progress_info else ""
+            message = f"✅{progress_text} 电影\\[`{resource_name}`\\]离线下载完成\\!\n\n便于削刮，请为资源指定TMDB的标准名称！"
+
             add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
             
         else:
             # 下载超时，删除任务并提供选择
             init.openapi_115.clear_failed_task(link)
-            init.logger.warn(f"❌ {resource_name} 离线下载超时")
+            timeout_message = f"❌ {progress_info} {resource_name} 离线下载超时" if progress_info else f"❌ {resource_name} 离线下载超时"
+            init.logger.warn(timeout_message)
             
             # 为失败重试也使用时间戳ID
             retry_task_id = str(int(time.time() * 1000))
@@ -363,14 +612,19 @@ def download_task(link, selected_path, user_id):
                 [InlineKeyboardButton("取消", callback_data="cancel_download")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            message = f"`{link}`\n\n😭 离线下载超时，请选择后续操作："
-            
+
+            # 添加进度信息到失败消息
+            failure_text = f"{progress_info} " if progress_info else ""
+            message = f"`{link}`\n\n😭 {failure_text}离线下载超时，请选择后续操作："
+
             add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
             
     except Exception as e:
-        init.logger.error(f"💀下载遇到错误: {str(e)}")
-        add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png",
-                            message=f"❌ 下载任务执行出错: {str(e)}")
+        error_msg = f"💀{progress_info} 下载遇到错误: {str(e)}" if progress_info else f"💀下载遇到错误: {str(e)}"
+        init.logger.error(error_msg)
+
+        user_error_msg = f"❌ {progress_info} 下载任务执行出错: {str(e)}" if progress_info else f"❌ 下载任务执行出错: {str(e)}"
+        add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=user_error_msg)
     finally:
         # 清除云端任务，避免重复下载
         init.openapi_115.clear_cloud_task()
@@ -552,7 +806,7 @@ def register_download_handlers(application):
         # entry_points=[CommandHandler("dl", start_d_command)],
          entry_points=[
             MessageHandler(
-                filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)'),
+                filters.TEXT & filters.Regex(r'(magnet:|ed2k://|ED2K://|thunder://)'),
                 start_d_command
             )
         ],
@@ -563,20 +817,20 @@ def register_download_handlers(application):
         fallbacks=[CommandHandler("q", quit_conversation)],
     )
     application.add_handler(download_command_handler)
-    
+
     # 添加独立的回调处理器处理异步任务的后续操作
     application.add_handler(CallbackQueryHandler(handle_manual_rename_callback, pattern=r"^rename_"))
     application.add_handler(CallbackQueryHandler(handle_retry_callback, pattern=r"^retry_"))
     application.add_handler(CallbackQueryHandler(handle_download_failure, pattern=r"^cancel_download$"))
-    
+
     # 添加消息处理器处理重命名输入（使用较低优先级的组别）
     # group=1 表示优先级低于默认的 group=0
     # application.add_handler(MessageHandler(
-    #     filters.TEXT & ~filters.COMMAND, 
+    #     filters.TEXT & ~filters.COMMAND,
     #     handle_manual_rename
     # ), group=1)
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)'), 
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'(magnet:|ed2k://|ED2K://|thunder://)'),
         handle_manual_rename
     ), group=1)
     init.logger.info("✅ Downloader处理器已注册")

@@ -13,15 +13,32 @@ from app.core.open_115 import OpenAPI_115
 # 为了兼容本地开发，添加后备路径设置
 def _ensure_module_paths():
     """
-    确保模块路径可用，主要用于本地开发环境
-    在 Docker 环境中，PYTHONPATH 已通过环境变量设置
+    确保模块路径可用，兼容多种部署环境
+    - 原始Docker环境：PYTHONPATH已设置
+    - 本地开发环境：自动添加项目路径
+    - 其他容器环境：智能检测并添加必要路径
     """
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    required_paths = [current_dir, os.path.dirname(current_dir)]
-    
+    parent_dir = os.path.dirname(current_dir)
+
+    # 检测是否在 /app/app 这种嵌套结构中
+    if current_dir.endswith('/app/app') or current_dir.endswith('\\app\\app'):
+        # 在嵌套app目录中，需要添加上层app目录到路径
+        upper_app_dir = os.path.dirname(current_dir)  # /app
+        required_paths = [upper_app_dir, current_dir, parent_dir]
+    else:
+        # 标准结构
+        required_paths = [current_dir, parent_dir]
+
     for path in required_paths:
         if path not in sys.path:
             sys.path.insert(0, path)
+
+    # 调试信息：显示添加的路径（仅在debug模式下）
+    if os.environ.get('DEBUG_PATHS'):
+        print(f"Current directory: {current_dir}")
+        print(f"Added paths to sys.path: {required_paths}")
+        print(f"Current sys.path: {sys.path[:5]}...")  # 只显示前5个路径
 
 # 执行路径检查
 _ensure_module_paths()
@@ -31,7 +48,7 @@ from app.utils.sqlitelib import *
 
 
 # 调试模式
-debug_mode = False
+debug_mode = True
 
 # 全局日志
 logger:Optional[Logger] = None
@@ -222,9 +239,39 @@ def initialize_115open():
 
 def check_user(user_id):
     global bot_config
-    if user_id == bot_config['allowed_user']:
-        return True
-    return False
+    allowed_user = bot_config['allowed_user']
+
+    # 支持单个用户ID或用户ID列表
+    if isinstance(allowed_user, list):
+        return user_id in allowed_user
+    else:
+        return user_id == allowed_user
+
+def get_primary_user():
+    """
+    获取主用户ID (用于系统消息发送)
+    如果配置了多个用户，返回第一个用户
+    如果配置了单个用户，返回该用户
+    """
+    global bot_config
+    allowed_user = bot_config['allowed_user']
+
+    if isinstance(allowed_user, list):
+        return allowed_user[0] if allowed_user else None
+    else:
+        return allowed_user
+
+def get_all_users():
+    """
+    获取所有授权用户ID列表
+    """
+    global bot_config
+    allowed_user = bot_config['allowed_user']
+
+    if isinstance(allowed_user, list):
+        return allowed_user
+    else:
+        return [allowed_user]
 
 def create_tg_session_file():
     """

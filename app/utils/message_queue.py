@@ -4,17 +4,17 @@ import asyncio
 import init
 from telegram import Bot
 
-# 全局消息队列
-message_queue = asyncio.Queue()
+# 全局消息队列（延迟初始化）
+message_queue = None
 # 全局变量，用于存储事件循环
 global_loop = None
 
 
 def add_task_to_queue(sub_user, post_url, message, keyboard=None, retry_count=0):
     """向消息队列中添加任务（线程安全）"""
-    global global_loop
-    if global_loop is None:
-        init.logger.error("事件循环尚未启动，无法添加任务到队列")
+    global global_loop, message_queue
+    if global_loop is None or message_queue is None:
+        init.logger.error("事件循环或消息队列尚未初始化，无法添加任务到队列")
         return False
     
     try:
@@ -34,13 +34,19 @@ def add_task_to_queue(sub_user, post_url, message, keyboard=None, retry_count=0)
         
         
 async def queue_worker(loop, token):
-    global global_loop
+    global global_loop, message_queue
     """ 后台队列处理任务 """
     global_loop = loop
+
+    # 在正确的事件循环中初始化队列
+    if message_queue is None:
+        message_queue = asyncio.Queue()
+
     # bot
     bot = Bot(token=token)
     init.logger.info("消息队列线程启动成功！")
     while True:
+        retry_count = 0  # 在try块外初始化retry_count
         try:
             # 从队列获取任务
             task_data = await message_queue.get()
@@ -99,11 +105,8 @@ async def queue_worker(loop, token):
             # 处理发送失败的情况
             error_msg = str(e)
             init.logger.warn(f"队列任务处理失败 (尝试 {retry_count + 1}/3): {error_msg}")
-            
+
             try:
-                # 标记当前任务完成（避免队列阻塞）
-                message_queue.task_done()
-                
                 # 检查是否为不可重试的错误
                 non_retryable_errors = [
                     "Invalid file http url specified: url host is empty",
@@ -114,21 +117,21 @@ async def queue_worker(loop, token):
                     "Bad Request: chat not found",
                     "Bad Request: user is deactivated"
                 ]
-                
+
                 should_retry = True
                 for non_retryable in non_retryable_errors:
                     if non_retryable in error_msg:
                         should_retry = False
                         init.logger.error(f"❌ 遇到不可重试错误，直接放弃: {error_msg}")
                         break
-                
+
                 # 检查是否需要重试
                 if should_retry and retry_count < 2:  # 最多重试2次（总共3次尝试）
                     # 重新入队，增加重试计数
                     new_retry_count = retry_count + 1
                     await message_queue.put((sub_user, post_url, message, keyboard, new_retry_count))
                     init.logger.info(f"任务已重新入队，将进行第 {new_retry_count + 1} 次尝试")
-                    
+
                     # 重试前等待一段时间（指数退避）
                     retry_delay = 5 * (2 ** retry_count)  # 5秒, 10秒, 20秒
                     await asyncio.sleep(retry_delay)
@@ -139,7 +142,15 @@ async def queue_worker(loop, token):
                     else:
                         init.logger.error(f"❌ 任务因不可重试错误直接放弃: 用户[{sub_user}], 错误: {error_msg}")
                     init.logger.error(f"❌ 失败消息内容: {message}")
-                    
+
+                # 标记当前任务完成
+                message_queue.task_done()
+
             except Exception as retry_error:
+                # 如果重试处理失败，也要标记任务完成
                 init.logger.error(f"重试处理失败: {retry_error}")
+                try:
+                    message_queue.task_done()
+                except Exception:
+                    pass  # 忽略task_done的错误
         

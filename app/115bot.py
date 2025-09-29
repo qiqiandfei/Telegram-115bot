@@ -120,8 +120,8 @@ def send_start_message():
 发送 `/start` 查看操作说明"""
         
         add_task_to_queue(
-            init.bot_config['allowed_user'], 
-            f"{init.IMAGE_PATH}/neuter010.png", 
+            init.get_primary_user(),
+            f"{init.IMAGE_PATH}/neuter010.png",
             message=formatted_message
         )
 
@@ -197,8 +197,8 @@ if __name__ == '__main__':
     if not init.initialize_115open():
         init.logger.error("115 OpenAPI客户端初始化失败，程序无法继续运行！")
         add_task_to_queue(
-            init.bot_config['allowed_user'], 
-            f"{init.IMAGE_PATH}/male023.png", 
+            init.get_primary_user(),
+            f"{init.IMAGE_PATH}/male023.png",
             message="❌ 115 OpenAPI客户端初始化失败，程序无法继续运行！\n请检查Token或115 AppID设置是否正确！"
         )
         # 等待消息队列处理完毕再退出

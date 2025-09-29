@@ -217,7 +217,7 @@ def download_task(av_result, av_number, save_path, user_id):
     except Exception as e:
         init.logger.warn(f"💀下载遇到错误: {str(e)}")
         from app.utils.message_queue import add_task_to_queue
-        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png",
+        add_task_to_queue(init.get_primary_user(), f"{init.IMAGE_PATH}/male023.png",
                             message=f"❌ 下载任务执行出错: {str(e)}")
     finally:
         # 清空离线任务

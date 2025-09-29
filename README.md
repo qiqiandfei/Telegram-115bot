@@ -91,6 +91,16 @@ tg_api_hash: 1yh3j4k9dsk0fj3jdufnwrhf62j1k33f
 ### 重要提醒
 
 ⚠️ **同步功能警告**：`/sync` 命令会**删除目标目录下的所有文件**，包括元数据。大规模同步操作可能触发 115 网盘风控机制，请谨慎使用！
+## 调试
+### 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+### 使用虚拟环境
+uv venv
+### 虚拟环境安装依赖
+uv pip install -r requirements.txt
+### 虚拟环境 启动 
+source .venv/bin/activate && PYTHONPATH="/root/Telegram-115bot/app:/root/Telegram-115bot/app/utils:/root/Telegram-115bot/app/core:/root/Telegram-115bot/app/handlers:/root/Telegram-115bot" python app/115bot.py
+
 
 ## 许可证
 ```

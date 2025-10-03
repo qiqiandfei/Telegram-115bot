@@ -577,6 +577,10 @@ def save_sehua2db(results):
                     init.logger.warn(f"数据不完整，跳过入库: {result}")
                     continue
                 
+                if check_magnet(result.get('magnet')) is False:
+                    init.logger.warn(f"磁力链接格式不正确，跳过入库: {result.get('magnet')}")
+                    continue
+                
                 # 插入数据
                 insert_query = '''
                 INSERT INTO sehua_data (section_name, av_number, title, movie_type, size, magnet, post_url, publish_date, pub_url, image_path, save_path)
@@ -666,6 +670,12 @@ def get_sehua_save_path(_section_name):
         if section_name == _section_name:
             return section.get('save_path', f'/AV/涩花/{section_name}')
     return f'/AV/涩花/{_section_name}'
+
+def check_magnet(magnet):
+    pattern = r"^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.*)?$"
+    if not isinstance(magnet, str) or not magnet.startswith('magnet:'):
+        return False
+    return re.fullmatch(pattern, magnet) is not None
 
 
 

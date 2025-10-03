@@ -14,7 +14,7 @@ def get_tmdb_id(movie_name, page=1):
     """
     从TMDB获取电影ID
     :param movie_name: 电影名称
-    :return: (tmdb_id, title) 或 (None, None)
+    :return: tmdb_id 或 None
     """
     base_url = "https://www.themoviedb.org"
     search_url = f"{base_url}/search/movie?query={movie_name}&page={page}"
@@ -32,7 +32,7 @@ def get_tmdb_id(movie_name, page=1):
         for tag in tags_p:
             if "找不到和您的查询相符的电影" in tag.text:
                 init.logger.info(f"TMDB未找到匹配电影: {movie_name}")
-                return ""
+                return None
         all_movie_links = soup.find_all('a', class_='result')
         for link in all_movie_links:
             # 提取电影ID
@@ -264,14 +264,15 @@ def send_message2usr(tmdb_id, sqlite):
     
 def is_subscribe(movie_name):
     tmdb_id = get_tmdb_id(movie_name)
-    with SqlLiteLib() as sqlite:
-        sql = "select movie_name from sub_movie where is_delete = 0 and tmdb_id=?"
-        params = (tmdb_id,)
-        result = sqlite.query_one(sql, params)
-        if result:
-            return True
-        else:
-            return False
+    if tmdb_id:
+        with SqlLiteLib() as sqlite:
+            sql = "select movie_name from sub_movie where is_delete = 0 and tmdb_id=?"
+            params = (tmdb_id,)
+            result = sqlite.query_one(sql, params)
+            if result:
+                return True
+            else:
+                return False
 
 def update_subscribe(movie_name, post_url, download_url):
     tmdb_id = get_tmdb_id(movie_name)

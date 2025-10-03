@@ -158,6 +158,11 @@ def save_av_daily_update2db(results):
                 init.logger.info(f"AV {av_number} 已存在，跳过保存。")
                 continue
             
+            from app.core.sehua_spider import check_magnet
+            if check_magnet(result.get('magnet')) is False:
+                init.logger.warn(f"磁力链接格式不正确，跳过入库: {result.get('magnet')}")
+                continue
+            
             # 插入新记录
             sql_insert = """
                 INSERT INTO av_daily_update (av_number, publish_date, title, post_url, magnet, pub_url)

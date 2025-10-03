@@ -183,7 +183,7 @@ async def quit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def is_valid_link(link: str) -> DownloadUrlType:    
     # 定义链接模式字典
     patterns = {
-        DownloadUrlType.MAGNET: r'^magnet:\?xt=urn:[a-z0-9]+:[a-zA-Z0-9]{32,40}',
+        DownloadUrlType.MAGNET: r'^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.+)?$',
         DownloadUrlType.ED2K: r'^ed2k://\|file\|.+\|[0-9]+\|[a-fA-F0-9]{32}\|',
         DownloadUrlType.THUNDER: r'^thunder://[a-zA-Z0-9=]+'
     }

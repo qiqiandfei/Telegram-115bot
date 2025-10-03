@@ -87,7 +87,7 @@ class OpenAPI_115:
                 app_id = init.bot_config.get('115_app_id')
                 if app_id and app_id.lower() != "your_115_app_id":
                     init.logger.info("正在进入PKCE授权流程，获取refresh_token...")
-                    self.auth_pkce(init.bot_config['allowed_user'], app_id)
+                    self.auth_pkce(init.get_primary_user(), app_id)
                 else:
                     _access_token = init.bot_config.get('access_token', '')
                     _refresh_token = init.bot_config.get('refresh_token', '')
@@ -185,7 +185,7 @@ class OpenAPI_115:
         if not self.refresh_token:
             if not os.path.exists(init.TOKEN_FILE):
                 init.logger.warn("请先进行授权，获取refresh_token！")
-                add_task_to_queue(init.bot_config['allowed_user'], "/app/images/male023.png", "请先进行授权，获取refresh_token！")
+                add_task_to_queue(init.get_primary_user(), "/app/images/male023.png", "请先进行授权，获取refresh_token！")
                 return
             with open(init.TOKEN_FILE, 'r', encoding='utf-8') as f:
                 tokens = json.load(f)

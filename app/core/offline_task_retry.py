@@ -41,7 +41,7 @@ def sehua_offline():
                         offline2115(batch_tasks, task_count, save_path)
             else:
                 init.logger.warn("涩花离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
-                add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png", "涩花离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+                add_task_to_queue(init.get_primary_user(), f"{init.IMAGE_PATH}/male023.png", "涩花离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
                 return
 
     # 等待离线完成
@@ -123,7 +123,7 @@ def sehua_offline():
     # 只有当有任务时才发送消息
     if messages:
         final_message = "**涩花离线任务完成情况:**\n" + "\n".join(messages)
-        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
+        add_task_to_queue(init.get_primary_user(), f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
     
     # 删除垃圾文件
     for path in save_path_list:
@@ -213,9 +213,9 @@ def sehua_success_proccesser(item, save_path, task, success_list):
 **发布链接:** [点击查看详情]({pub_url})
                 """
             if not init.aria2_client:
-                add_task_to_queue(init.bot_config['allowed_user'], image_path, message)
+                add_task_to_queue(init.get_primary_user(), image_path, message)
             else:
-                push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], image_path, message)
+                push2aria2(f"{save_path}/{task['name']}", init.get_primary_user(), image_path, message)
             
 
 
@@ -248,7 +248,7 @@ def av_daily_offline():
             offline2115(offline_tasks, len(update_list), init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更'))
     else:
         init.logger.warn("AV日更离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
-        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png", "AV日更离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+        add_task_to_queue(init.get_primary_user(), f"{init.IMAGE_PATH}/male023.png", "AV日更离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
         return
     
     # 等待离线完成
@@ -285,7 +285,7 @@ def av_daily_offline():
         init.logger.info("失败的任务会在下次自动重试，请检查日志。")
         message += "\n失败的任务会在下次自动重试，请留意日志或通知！"
 
-    add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/av_daily_update.png", message)
+    add_task_to_queue(init.get_primary_user(), f"{init.IMAGE_PATH}/av_daily_update.png", message)
     
     # 删除垃圾文件
     init.openapi_115.auto_clean_all(init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更'))
@@ -321,9 +321,9 @@ def av_daily_success_proccesser(item, task):
 **发布链接:** [点击查看详情]({pub_url})
 """     
         if not init.aria2_client:
-            add_task_to_queue(init.bot_config['allowed_user'], item['post_url'], message)
+            add_task_to_queue(init.get_primary_user(), item['post_url'], message)
         else:
-            push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], item['post_url'], message)
+            push2aria2(f"{save_path}/{task['name']}", init.get_primary_user(), item['post_url'], message)
 
 
 def offline2115(offline_tasks, task_count, save_path):

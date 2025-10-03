@@ -122,8 +122,8 @@ def try_to_offline2115_again():
                             init.logger.info(f"cover_url: {cover_url}")
                             # 发送通知给授权用户
                             add_task_to_queue(
-                                init.bot_config['allowed_user'], 
-                                cover_url, 
+                                init.get_primary_user(),
+                                cover_url,
                                 message=message
                             )
                         except TelegramError as e:
@@ -131,7 +131,7 @@ def try_to_offline2115_again():
                         except Exception as e:
                             init.logger.warn(f"Unexpected error: {e}")
                     else:
-                        add_task_to_queue(init.bot_config['allowed_user'], None, message=message)
+                        add_task_to_queue(init.get_primary_user(), None, message=message)
                     
                     # 标记任务为完成
                     mark_task_as_completed(task_id)

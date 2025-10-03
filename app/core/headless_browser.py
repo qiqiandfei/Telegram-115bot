@@ -53,8 +53,8 @@ class HeadlessBrowser:
         except Exception as e:
             init.logger.error(f"初始化浏览器时发生错误: {str(e)}")
             add_task_to_queue(
-                init.bot_config['allowed_user'], 
-                f"{init.IMAGE_PATH}/male023.png", 
+                init.get_primary_user(),
+                f"{init.IMAGE_PATH}/male023.png",
                 f"⚠️ 初始化浏览器失败: {str(e)}"
             )
             self.close()
@@ -80,8 +80,8 @@ class HeadlessBrowser:
                 error_msg = f"访问 {test_url} 失败，返回状态码: {status_code}"
                 init.logger.warn(error_msg)
                 add_task_to_queue(
-                    init.bot_config['allowed_user'], 
-                    f"{init.IMAGE_PATH}/male023.png", 
+                    init.get_primary_user(),
+                    f"{init.IMAGE_PATH}/male023.png",
                     f"⚠️ 初始化浏览器失败，无法访问 {test_url}，请检查网络连接或网站状态！"
                 )
                 # 清理已创建的资源
@@ -92,8 +92,8 @@ class HeadlessBrowser:
             error_msg = f"访问 {test_url if 'test_url' in locals() else url} 连接超时"
             init.logger.warn(error_msg)
             add_task_to_queue(
-                init.bot_config['allowed_user'], 
-                f"{init.IMAGE_PATH}/male023.png", 
+                init.get_primary_user(),
+                f"{init.IMAGE_PATH}/male023.png",
                 f"⚠️ 初始化浏览器失败，无法访问目标网站，连接超时！"
             )
             self.close()

@@ -415,7 +415,6 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         new_resource_name = update.message.text.strip()
         
         # 获取重命名所需的数据
-        final_path = rename_data["final_path"]
         old_resource_name = rename_data["resource_name"]
         selected_path = rename_data["selected_path"]
         download_url = rename_data["link"]
@@ -432,6 +431,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop("rename_data", None)
             return
 
+        final_path = rename_data["final_path"]
         # 执行重命名
         init.openapi_115.rename(final_path, new_resource_name)
         

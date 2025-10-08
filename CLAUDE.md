@@ -28,20 +28,33 @@ docker build -f Dockerfile -t 115bot:latest .
 
 ### Python Development
 ```bash
-# Install dependencies
+# Install dependencies (traditional)
 pip install -r requirements.txt
+
+# Install dependencies (with uv - faster)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv
+uv pip install -r requirements.txt
 
 # Run bot directly
 python app/115bot.py
 
-# Create Telegram session file
+# Run with virtual environment and custom PYTHONPATH
+source .venv/bin/activate && PYTHONPATH="/root/Telegram-115bot/app:/root/Telegram-115bot/app/utils:/root/Telegram-115bot/app/core:/root/Telegram-115bot/app/handlers:/root/Telegram-115bot" python app/115bot.py
+
+# Create Telegram session file (required for >20MB file uploads)
 python create_tg_session_file.py
+
+# Test Python syntax
+python3 -m py_compile app/handlers/download_handler.py
 ```
 
 ### Testing
 - No formal test framework configured
 - Manual testing via Telegram bot commands
 - Check logs in `/config/115bot.log` (when running in container)
+- Test utilities available:
+  - `test_folder_extraction.py` - Test batch download folder name extraction logic
 
 ## Architecture Overview
 
@@ -129,7 +142,65 @@ python create_tg_session_file.py
 ## Important Notes
 
 - The bot requires 115 Network Disk account and open platform access
-- Large file uploads (>20MB) require Telegram API credentials
-- Directory sync operations are destructive (delete existing files)
-- All user interactions are restricted to `allowed_user` ID
+- Large file uploads (>20MB) require Telegram API credentials (`tg_api_id`, `tg_api_hash`, and `user_session.session`)
+- Directory sync operations are destructive (delete existing files) - use with caution
+- All user interactions are restricted to `allowed_user` ID (single ID or list)
 - Async message queue handles background processing to prevent blocking
+- Batch download state (`init.batch_downloads`, `init.pending_tasks`) stored in memory - lost on restart
+
+## Batch Download Features
+
+### Auto-Folder Creation
+When users send multiple download links with text, the bot automatically:
+1. Extracts first line + last line non-link text as folder name
+2. Sanitizes characters (removes `:`, replaces `/\?*"<>|` with `-`)
+3. Creates custom folder and downloads all files there
+4. Files are saved directly (no `temp` subfolder for batch downloads)
+
+**Example Input**:
+```
+miru(坂道みる/坂道美琉)原档合集
+ed2k://|file|file1.mp4|...|/
+ed2k://|file|file2.mp4|...|/
+20251008
+```
+
+**Result**: Folder `miru(坂道みる-坂道美琉)原档合集20251008` created with files inside
+
+### "移动到[]" (Move To) Command
+After batch download completion (>1 links), users can reorganize files:
+- Command format: `移动到[新文件夹名]`
+- Creates subfolder and moves all downloaded files
+- Works with or without auto-created folder names
+- Example: `移动到[合集整理]`
+
+### Key Implementation Details
+- `extract_folder_name_from_text()` in `download_handler.py` - Extracts folder name
+- `sanitize_folder_name()` - Cleans invalid characters
+- `download_tasks_batch()` - Creates custom folder when `custom_folder_name` provided and `total_count > 1`
+- Single downloads (1 link) still use `temp` folder wrapping for backward compatibility
+- Batch downloads (≥2 links) save files directly without `temp` subfolder
+
+## User Commands
+
+### Basic Commands
+- `/start` - Show help information
+- `/auth` - 115 Network Disk OAuth authorization
+- `/reload` - Reload configuration without restart
+- `/q` - Cancel current conversation
+
+### Download Commands
+- Send `magnet:`, `ed2k://`, or `thunder://` links directly - Trigger batch download
+- `/dl` - Add offline download (deprecated, pattern matching used instead)
+- `/av [番号]` - Download AV content by code
+- `/rl` - View/manage retry list for failed downloads
+
+### Content Management
+- `/sm [电影名称]` - Subscribe to movie updates
+- `/sync` - Sync directory and create STRM soft links
+- `/csh` - Manual crawl Sehua data
+- `/cjav [yyyymmdd]` - Manual crawl javbee data
+- Forward video to bot - Upload video to 115
+
+### Special Message Handling
+- `移动到[文件夹名]` - Batch move downloaded files to custom folder (after batch download)

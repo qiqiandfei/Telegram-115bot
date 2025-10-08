@@ -1,3 +1,10 @@
+
+
+# 修改点：
+- [x] 支持 多个磁力 批量添加离线任务
+- [x] 批量下载 时候，识别文本 将【首行+尾行文字】 指定为文件夹
+---------------------
+# 以下为原 版本的README 说明 
 <div align="center">
     <h1>115Bot - Telegram 机器人</h1>
     <p>简体中文 | <a href="./README_EN.md">[English]</a> </p>
@@ -98,9 +105,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv
 ### 虚拟环境安装依赖
 uv pip install -r requirements.txt
-### 虚拟环境 启动 
+### 启动 
 source .venv/bin/activate && PYTHONPATH="/root/Telegram-115bot/app:/root/Telegram-115bot/app/utils:/root/Telegram-115bot/app/core:/root/Telegram-115bot/app/handlers:/root/Telegram-115bot" python app/115bot.py
-
 
 ## 许可证
 ```

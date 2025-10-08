@@ -312,6 +312,43 @@ class OpenAPI_115:
             init.logger.warn(f"离线下载任务添加失败: {response['message']}")
             raise Exception(response['message'])
 
+    @handle_token_expiry
+    def offline_download_specify_path_batch(self, download_urls, save_path):
+        """
+        批量添加离线下载任务（使用换行符分割多个URL）
+
+        Args:
+            download_urls: 下载链接列表
+            save_path: 保存路径
+
+        Returns:
+            成功返回 True，失败抛出异常
+        """
+        url = f"{self.base_url}/open/offline/add_task_urls"
+        file_info = self.get_file_info(save_path)
+        if not file_info:
+            self.create_dir_recursive(save_path)
+
+        # 将所有链接用换行符拼接成一个字符串
+        urls_string = "\n".join(download_urls)
+
+        data = {
+            "urls": urls_string,
+            "wp_path_id": file_info['file_id']
+        }
+
+        init.logger.info(f"批量提交 {len(download_urls)} 个离线下载任务")
+        response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
+
+        if response['state'] == True:
+            init.logger.info(f"批量离线下载任务添加成功: {response}")
+            return True
+        else:
+            if response['code'] == 40140125:
+                return response
+            init.logger.warn(f"批量离线下载任务添加失败: {response['message']}")
+            raise Exception(response['message'])
+
     # @handle_token_expiry
     def get_offline_tasks_by_page(self, page=1):
         url = f"{self.base_url}/open/offline/get_task_list"

@@ -33,6 +33,79 @@ class DownloadUrlType(Enum):
         return self.value
 
 
+def sanitize_folder_name(text: str) -> str:
+    """
+    清理文件夹名称:
+    1. 移除":"字符
+    2. 替换不能作为文件夹的字符为"-"
+    """
+    if not text:
+        return ""
+
+    # 1. 移除冒号
+    text = text.replace(":", "")
+
+    # 2. 替换不能作为文件夹名的字符为"-"
+    # Windows和Linux都不允许的字符: / \ ? * " < > |
+    invalid_chars = ['/', '\\', '?', '*', '"', '<', '>', '|']
+    for char in invalid_chars:
+        text = text.replace(char, "-")
+
+    # 移除前后空格
+    return text.strip()
+
+
+def extract_folder_name_from_text(message_text: str) -> str:
+    """
+    从文本中提取首行+尾行非链接文字作为文件夹名
+
+    规则:
+    1. 提取首行非空文字(不包含链接)
+    2. 提取尾行非空文字(不包含链接)
+    3. 拼接首行+尾行
+    4. 清理文件夹名称
+    """
+    lines = message_text.strip().split('\n')
+
+    # 过滤掉空行和只包含链接的行
+    non_link_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # 检查该行是否包含链接
+        contains_link = False
+        for fragment in line.split():
+            if is_valid_link(fragment.strip()) != DownloadUrlType.UNKNOWN:
+                contains_link = True
+                break
+
+        # 如果该行不只包含链接,提取非链接部分
+        if not contains_link:
+            non_link_lines.append(line)
+        else:
+            # 提取该行中的非链接文字部分
+            text_parts = []
+            for fragment in line.split():
+                fragment = fragment.strip()
+                if fragment and is_valid_link(fragment) == DownloadUrlType.UNKNOWN:
+                    text_parts.append(fragment)
+            if text_parts:
+                non_link_lines.append(' '.join(text_parts))
+
+    if not non_link_lines:
+        return ""
+
+    # 拼接首行和尾行
+    if len(non_link_lines) == 1:
+        folder_name = non_link_lines[0]
+    else:
+        folder_name = non_link_lines[0] + non_link_lines[-1]
+
+    # 清理文件夹名称
+    return sanitize_folder_name(folder_name)
+
+
 async def start_d_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usr_id = update.message.from_user.id
     if not init.check_user(usr_id):
@@ -65,6 +138,12 @@ async def start_d_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 自动忽略无关信息，只提示找到的有效链接数量
     init.logger.info(f"从输入中提取到 {len(valid_links)} 个有效下载链接")
+
+    # 提取首行+尾行文字作为自定义文件夹名
+    custom_folder_name = extract_folder_name_from_text(message_text)
+    if custom_folder_name:
+        init.logger.info(f"提取到自定义文件夹名: {custom_folder_name}")
+        context.user_data["custom_folder_name"] = custom_folder_name
 
     # 保存所有有效链接到context.user_data
     context.user_data["links"] = valid_links
@@ -105,10 +184,13 @@ async def select_main_category(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id = update.effective_user.id
             total_count = len(links)
 
+            # 获取自定义文件夹名(如果有)
+            custom_folder_name = context.user_data.get("custom_folder_name", "")
+
             await query.edit_message_text(f"✅ 已为您添加 {total_count} 个下载任务到队列！\n请稍后~")
 
             # 使用批量下载处理（减少API调用频率）
-            download_executor.submit(download_tasks_batch, links, last_save_path, user_id)
+            download_executor.submit(download_tasks_batch, links, last_save_path, user_id, custom_folder_name)
             return ConversationHandler.END
         else:
             await query.edit_message_text("❌ 未找到最后一次保存路径，请重新选择分类")
@@ -149,10 +231,13 @@ async def select_sub_category(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     total_count = len(links)
 
+    # 获取自定义文件夹名(如果有)
+    custom_folder_name = context.user_data.get("custom_folder_name", "")
+
     await query.edit_message_text(f"✅ 已为您添加 {total_count} 个下载任务到队列！\n请稍后~")
 
     # 使用批量下载处理（减少API调用频率）
-    download_executor.submit(download_tasks_batch, links, selected_path, user_id)
+    download_executor.submit(download_tasks_batch, links, selected_path, user_id, custom_folder_name)
     return ConversationHandler.END
 
 
@@ -309,11 +394,14 @@ def save_failed_download_to_db(title, magnet, save_path):
 
 
 def process_successful_download(link, selected_path, user_id, resource_name, task_index, total_count):
-    """处理下载成功的任务"""
+    """处理下载成功的任务，返回最终的资源名称（用于批量移动）"""
     from app.utils.message_queue import add_task_to_queue
 
     progress_info = f"[{task_index}/{total_count}]"
     init.logger.info(f"{progress_info} {resource_name} 开始处理下载结果")
+
+    # 保存原始资源名用于显示
+    original_resource_name = resource_name
 
     # 处理下载结果
     final_path = f"{selected_path}/{resource_name}"
@@ -321,13 +409,16 @@ def process_successful_download(link, selected_path, user_id, resource_name, tas
         # 如果下载的内容是目录，清除垃圾文件
         init.openapi_115.auto_clean(final_path)
     else:
-        # 如果下载的内容是文件，为文件套一个文件夹
-        temp_folder = "temp"
-        init.openapi_115.create_dir_for_file(selected_path, temp_folder)
-        # 移动文件到临时目录
-        init.openapi_115.move_file(f"{selected_path}/{resource_name}", f"{selected_path}/{temp_folder}")
-        final_path = f"{selected_path}/{temp_folder}"
-        resource_name = temp_folder
+        # 批量下载时(>=2个链接)，不套temp文件夹，直接使用文件本身
+        # 单个下载时才套temp文件夹
+        if total_count < 2:
+            # 如果下载的内容是文件，为文件套一个文件夹
+            temp_folder = "temp"
+            init.openapi_115.create_dir_for_file(selected_path, temp_folder)
+            # 移动文件到临时目录
+            init.openapi_115.move_file(f"{selected_path}/{resource_name}", f"{selected_path}/{temp_folder}")
+            final_path = f"{selected_path}/{temp_folder}"
+            resource_name = temp_folder
 
     # 获取文件列表并创建STRM文件
     file_list = init.openapi_115.get_files_from_dir(final_path)
@@ -337,13 +428,17 @@ def process_successful_download(link, selected_path, user_id, resource_name, tas
     if total_count >= 2:
         # 批量下载时不提示重命名，直接通知下载完成
         progress_text = f"{progress_info} "
-        message = f"✅ {progress_text}电影\\[`{resource_name}`\\]离线下载完成\\!"
+        # 使用原始资源名显示，而不是处理后的名称（如temp）
+        message = f"✅ {progress_text}电影\\[`{original_resource_name}`\\]离线下载完成\\!"
 
         # 通知Emby扫库
         notice_emby_scan_library()
 
         add_task_to_queue(user_id, None, message=message)
         init.logger.info(f"{progress_info} 批量下载，跳过重命名提示")
+
+        # 返回最终的资源名称（用于批量移动功能）
+        return resource_name
     else:
         # 单个链接时，提供重命名选项
         # 为避免callback_data长度限制，使用时间戳作为唯一标识符
@@ -430,42 +525,100 @@ def process_failed_download(link, selected_path, user_id, resource_name, task_in
         add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
 
 
-def download_tasks_batch(links, selected_path, user_id):
+def download_tasks_batch(links, selected_path, user_id, custom_folder_name=""):
     """批量下载任务处理（减少API调用频率）"""
     from app.utils.message_queue import add_task_to_queue
 
     total_count = len(links)
     init.logger.info(f"开始批量处理 {total_count} 个下载任务")
 
-    # 第一步：批量提交所有磁力链接
-    submitted_tasks = []
-    for i, link_info in enumerate(links, 1):
-        link = link_info["link"]
-        init.logger.info(f"[{i}/{total_count}] 提交离线任务: {link[:80]}...")
+    # 如果有自定义文件夹名且链接数>1,创建自定义文件夹
+    actual_download_path = selected_path
+    if custom_folder_name and total_count > 1:
+        # 在选择的路径下创建自定义文件夹
+        try:
+            init.openapi_115.create_dir_for_file(selected_path, custom_folder_name)
+            actual_download_path = f"{selected_path}/{custom_folder_name}"
+            init.logger.info(f"创建自定义文件夹: {actual_download_path}")
+        except Exception as e:
+            init.logger.error(f"创建自定义文件夹失败: {e}")
+            # 如果创建失败,使用原路径
+            actual_download_path = selected_path
 
-        offline_success = init.openapi_115.offline_download_specify_path(link, selected_path)
-        if offline_success:
-            submitted_tasks.append({
-                "link": link,
-                "index": i,
-                "submitted": True
-            })
-        else:
-            error_message = f"❌ [{i}/{total_count}] 提交离线任务失败！"
+    # 批量提交模式开关（设为True启用批量提交，False使用原有循环提交）
+    USE_BATCH_SUBMIT = True
+
+    if USE_BATCH_SUBMIT:
+        # 新方案：批量提交所有链接（使用换行符分割）
+        all_links = [link_info["link"] for link_info in links]
+        init.logger.info(f"使用批量提交模式，共 {total_count} 个链接")
+
+        try:
+            offline_success = init.openapi_115.offline_download_specify_path_batch(
+                all_links, actual_download_path
+            )
+
+            # 构建提交结果
+            submitted_tasks = []
+            for i, link_info in enumerate(links, 1):
+                link = link_info["link"]
+                submitted_tasks.append({
+                    "link": link,
+                    "index": i,
+                    "submitted": offline_success
+                })
+
+            if offline_success:
+                init.logger.info(f"批量提交成功：{total_count} 个任务已添加")
+            else:
+                # 批量提交失败，通知用户
+                error_message = f"❌ 批量提交 {total_count} 个离线任务失败！"
+                add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=error_message)
+                init.logger.warn(f"批量提交失败")
+
+        except Exception as e:
+            init.logger.error(f"批量提交异常: {e}")
+            # 异常情况，所有任务标记为失败
+            submitted_tasks = []
+            for i, link_info in enumerate(links, 1):
+                submitted_tasks.append({
+                    "link": link_info["link"],
+                    "index": i,
+                    "submitted": False
+                })
+            error_message = f"❌ 批量提交异常: {str(e)}"
             add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=error_message)
-            submitted_tasks.append({
-                "link": link,
-                "index": i,
-                "submitted": False
-            })
-        time.sleep(2)  # 提交间隔2秒
+
+    else:
+        # 原方案：循环逐个提交（保留以便回滚）
+        submitted_tasks = []
+        for i, link_info in enumerate(links, 1):
+            link = link_info["link"]
+            init.logger.info(f"[{i}/{total_count}] 提交离线任务: {link[:80]}...")
+
+            offline_success = init.openapi_115.offline_download_specify_path(link, actual_download_path)
+            if offline_success:
+                submitted_tasks.append({
+                    "link": link,
+                    "index": i,
+                    "submitted": True
+                })
+            else:
+                error_message = f"❌ [{i}/{total_count}] 提交离线任务失败！"
+                add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", message=error_message)
+                submitted_tasks.append({
+                    "link": link,
+                    "index": i,
+                    "submitted": False
+                })
+            time.sleep(2)  # 提交间隔2秒
 
     if not submitted_tasks:
         init.logger.error("所有任务提交失败")
         return
 
-    # 第二步：等待固定时间（300秒 = 5分钟）
-    init.logger.info(f"已提交 {len(submitted_tasks)} 个任务，等待300秒后检查状态...")
+    # 第二步：等待固定时间
+    init.logger.info(f"已提交 {len(submitted_tasks)} 个任务，等待60秒后检查状态...")
     time.sleep(60)
 
     # 第三步：只调用一次API获取所有任务状态
@@ -479,6 +632,7 @@ def download_tasks_batch(links, selected_path, user_id):
         return
 
     # 第四步：批量处理每个任务的结果
+    successful_downloads = []  # 记录成功下载的资源
     for task_info in submitted_tasks:
         if not task_info["submitted"]:
             continue
@@ -502,12 +656,19 @@ def download_tasks_batch(links, selected_path, user_id):
                 break
 
         if download_success:
-            # 处理下载成功的任务
-            process_successful_download(link, selected_path, user_id, resource_name,
+            # 处理下载成功的任务(使用actual_download_path)
+            # process_successful_download 返回最终的资源名称（可能是temp文件夹）
+            final_resource_name = process_successful_download(link, actual_download_path, user_id, resource_name,
                                        task_index, total_count)
+            # 保存最终的资源名称用于批量移动
+            if final_resource_name:
+                successful_downloads.append(final_resource_name)
+            else:
+                # 如果没有返回值（单个下载情况），使用原始名称
+                successful_downloads.append(resource_name)
         else:
-            # 处理下载失败的任务
-            process_failed_download(link, selected_path, user_id, resource_name,
+            # 处理下载失败的任务(使用actual_download_path)
+            process_failed_download(link, actual_download_path, user_id, resource_name,
                                    task_index, total_count)
 
         # 添加小延时，避免时间戳ID冲突
@@ -516,6 +677,28 @@ def download_tasks_batch(links, selected_path, user_id):
     # 第五步：清除云端任务（批量清理一次）
     init.openapi_115.clear_cloud_task()
     init.logger.info(f"批量下载任务处理完成，共 {total_count} 个任务")
+
+    # 第六步：如果有多个成功下载,提示"移动到"功能（无论是否已有自定义文件夹）
+    if total_count > 1 and len(successful_downloads) > 0:
+        # 保存批量下载信息,用于后续移动操作
+        batch_id = str(int(time.time() * 1000))
+        if not hasattr(init, 'batch_downloads'):
+            init.batch_downloads = {}
+
+        init.batch_downloads[batch_id] = {
+            "download_path": actual_download_path,
+            "resource_names": successful_downloads,
+            "user_id": user_id
+        }
+
+        # 提示用户可以使用"移动到"功能
+        if custom_folder_name:
+            # 如果已经有自定义文件夹，提示可以进一步移动
+            message = f"✅ 批量下载完成！共 {len(successful_downloads)}/{total_count} 个任务成功\n\n📁 已保存到: `{custom_folder_name}`\n\n💡 如需进一步移动文件，请回复：\n`移动到[新文件夹名]`"
+        else:
+            # 如果没有自定义文件夹，提示可以移动
+            message = f"✅ 批量下载完成！共 {len(successful_downloads)}/{total_count} 个任务成功\n\n💡 如需批量移动文件，请回复：\n`移动到[自定义文件夹名]`"
+        add_task_to_queue(user_id, None, message=message)
 
 
 def download_task(link, selected_path, user_id, task_index=1, total_tasks=1):
@@ -658,8 +841,98 @@ async def handle_manual_rename_callback(update: Update, context: ContextTypes.DE
         await query.edit_message_text("❌ 处理失败，请稍后再试")
 
 
+async def handle_batch_move(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理批量移动文件命令: 移动到[文件夹名]"""
+    message_text = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    # 检查是否是"移动到"命令
+    if not message_text.startswith("移动到"):
+        return
+
+    # 提取文件夹名
+    folder_match = re.match(r'移动到\[(.+?)\]', message_text)
+    if not folder_match:
+        await update.message.reply_text("⚠️ 格式错误！请使用: 移动到[文件夹名]")
+        return
+
+    target_folder_name = folder_match.group(1).strip()
+    if not target_folder_name:
+        await update.message.reply_text("⚠️ 文件夹名不能为空！")
+        return
+
+    # 清理文件夹名
+    target_folder_name = sanitize_folder_name(target_folder_name)
+
+    # 查找最近的批量下载记录
+    if not hasattr(init, 'batch_downloads') or not init.batch_downloads:
+        await update.message.reply_text("⚠️ 没有找到可移动的批量下载记录！")
+        return
+
+    # 找到该用户最近的批量下载
+    user_batches = [(batch_id, data) for batch_id, data in init.batch_downloads.items()
+                    if data['user_id'] == user_id]
+
+    if not user_batches:
+        await update.message.reply_text("⚠️ 没有找到您的批量下载记录！")
+        return
+
+    # 使用最新的批量下载记录(按batch_id降序)
+    batch_id, batch_data = sorted(user_batches, key=lambda x: x[0], reverse=True)[0]
+    download_path = batch_data['download_path']
+    resource_names = batch_data['resource_names']
+
+    try:
+        # 创建目标文件夹
+        init.openapi_115.create_dir_for_file(download_path, target_folder_name)
+        target_path = f"{download_path}/{target_folder_name}"
+        init.logger.info(f"创建目标文件夹: {target_path}")
+
+        # 批量移动文件/文件夹
+        moved_count = 0
+        failed_count = 0
+
+        # 去重资源名称列表（避免重复的temp）
+        unique_resources = list(set(resource_names))
+
+        for resource_name in unique_resources:
+            try:
+                source_path = f"{download_path}/{resource_name}"
+
+                # 直接移动文件或文件夹
+                init.openapi_115.move_file(source_path, target_path)
+                moved_count += 1
+                init.logger.info(f"移动: {resource_name} -> {target_path}")
+
+            except Exception as e:
+                failed_count += 1
+                init.logger.error(f"移动失败 {resource_name}: {e}")
+
+        # 发送结果消息
+        result_message = f"✅ 批量移动完成！\n\n"
+        result_message += f"📁 目标文件夹: `{target_folder_name}`\n"
+        result_message += f"✅ 成功: {moved_count} 个\n"
+        if failed_count > 0:
+            result_message += f"❌ 失败: {failed_count} 个"
+
+        await update.message.reply_text(result_message, parse_mode='MarkdownV2')
+
+        # 清除已使用的批量下载记录
+        del init.batch_downloads[batch_id]
+
+    except Exception as e:
+        init.logger.error(f"批量移动失败: {e}")
+        await update.message.reply_text(f"❌ 批量移动失败: {str(e)}")
+
+
 async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理手动重命名（通过独立的消息处理器）"""
+    # 先检查是否是"移动到"命令
+    message_text = update.message.text.strip()
+    if message_text.startswith("移动到"):
+        await handle_batch_move(update, context)
+        return
+
     # 检查用户是否有待处理的重命名数据
     rename_data = context.user_data.get("rename_data")
     if not rename_data:

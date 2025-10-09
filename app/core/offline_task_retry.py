@@ -81,7 +81,7 @@ def sehua_offline():
                 else:
                     init.logger.warn(f"{item['title']} 离线下载失败或未完成。")
                     # 删除离线失败的文件
-                    init.openapi_115.del_faild_offline_task(task['info_hash'])
+                    init.openapi_115.del_offline_task(task['info_hash'])
                 break
             
     # 等待消息队列处理完成，避免在消息发送期间删除图片文件
@@ -129,12 +129,14 @@ def sehua_offline():
     for path in save_path_list:
         init.openapi_115.auto_clean_all(path)
         time.sleep(10)
-    # 清空离线任务
+    
+    # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
+    
     # 删除临时文件
     del_images(images)
     
-    
+
 def del_images(images):
     if not images:
         return
@@ -265,7 +267,7 @@ def av_daily_offline():
                 else:
                     init.logger.warn(f"{item['av_number']} 离线下载失败或未完成。")
                     # 删除离线失败的文件
-                    init.openapi_115.del_faild_offline_task(task['info_hash'])
+                    init.openapi_115.del_offline_task(task['info_hash'])
                 break
             
     # 等待消息队列处理完成，避免在消息发送期间进行清理操作
@@ -289,7 +291,8 @@ def av_daily_offline():
     
     # 删除垃圾文件
     init.openapi_115.auto_clean_all(init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更'))
-    # 清空离线任务
+    
+    # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
     
     

@@ -61,13 +61,12 @@ def try_to_offline2115_again():
     time.sleep(300)  # 等待5秒，确保任务状态更新
     
     offline_task_status = init.openapi_115.get_offline_tasks()
-    
-    for task in failed_tasks:
-        task_id = task['id']
-        link = task['magnet']
-        title = task['title']
-        save_path = task['save_path']
-        retry_count = task['retry_count']
+    for failed_task in failed_tasks:
+        task_id = failed_task['id']
+        link = failed_task['magnet']
+        title = failed_task['title']
+        save_path = failed_task['save_path']
+        retry_count = failed_task['retry_count']
         for task in offline_task_status:
             if task['url'] == link:
                 if task['status'] == 2 and task['percentDone'] == 100:
@@ -135,16 +134,18 @@ def try_to_offline2115_again():
                     
                     # 标记任务为完成
                     mark_task_as_completed(task_id)
+                    
                 else:
                     init.logger.warn(f"重试任务 {title} 下载超时！")
                     # 更新重试次数
                     update_retry_time(task_id)
                     # 删除失败资源
-                    init.openapi_115.clear_failed_task(link)
+                    init.openapi_115.del_offline_task(task['info_hash'])
                 break
-    
-    # 清除云端任务，避免重复下载
+    # 清除云端任务
     init.openapi_115.clear_cloud_task()
+    
+
 
 async def view_retry_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """查看重试任务列表"""

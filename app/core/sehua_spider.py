@@ -578,7 +578,7 @@ def save_sehua2db(results):
                     continue
                 
                 if check_magnet(result.get('magnet')) is False:
-                    init.logger.warn(f"磁力链接格式不正确，跳过入库: {result.get('magnet')}")
+                    init.logger.warn(f"[{result.get('magnet')}]磁力链接格式不正确，跳过入库!")
                     continue
                 
                 # 插入数据
@@ -657,6 +657,13 @@ def match_strategy(result):
         
         # 有配置规则但都不匹配，放弃入库
         init.logger.info(f"标题[{result.get('title', '')}]未匹配到[{current_section}]板块的任何规则，自动放弃入库!")
+        # 删除图片
+        if result.get('image_path') and os.path.exists(result.get('image_path')):
+            try:
+                os.remove(result.get('image_path'))
+                init.logger.debug(f"已删除图片: {result.get('image_path')}")
+            except Exception as e:
+                init.logger.warn(f"删除图片失败: {str(e)}")
         return False, ""
         
     # 空的配置等同于无效策略，默认全部通过

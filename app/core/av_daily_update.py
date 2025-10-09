@@ -159,8 +159,8 @@ def save_av_daily_update2db(results):
                 continue
             
             from app.core.sehua_spider import check_magnet
-            if check_magnet(result.get('magnet')) is False:
-                init.logger.warn(f"磁力链接格式不正确，跳过入库: {result.get('magnet')}")
+            if check_magnet(magnet) is False:
+                init.logger.warn(f"[{magnet}]磁力链接格式不正确，跳过入库!")
                 continue
             
             # 插入新记录

@@ -282,7 +282,7 @@ def save_failed_download_to_db(title, magnet, save_path):
 def download_task(link, selected_path, user_id):
     """异步下载任务"""
     from app.utils.message_queue import add_task_to_queue
-    
+    info_hash = ""
     try:
         offline_success = init.openapi_115.offline_download_specify_path(link, selected_path)
         if not offline_success:
@@ -290,7 +290,7 @@ def download_task(link, selected_path, user_id):
             return
             
         # 检查下载状态
-        download_success, resource_name = init.openapi_115.check_offline_download_success(link)
+        download_success, resource_name, info_hash = init.openapi_115.check_offline_download_success(link)
         
         if download_success:
             init.logger.info(f"✅ {resource_name} 离线下载成功！")
@@ -338,7 +338,7 @@ def download_task(link, selected_path, user_id):
             
         else:
             # 下载超时，删除任务并提供选择
-            init.openapi_115.clear_failed_task(link)
+            init.openapi_115.delete_failed_task(info_hash)
             init.logger.warn(f"❌ {resource_name} 离线下载超时")
             
             # 为失败重试也使用时间戳ID
@@ -552,7 +552,7 @@ def register_download_handlers(application):
         # entry_points=[CommandHandler("dl", start_d_command)],
          entry_points=[
             MessageHandler(
-                filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)'),
+                filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)(?!.*\n).+$'),
                 start_d_command
             )
         ],

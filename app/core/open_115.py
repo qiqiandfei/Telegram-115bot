@@ -356,36 +356,23 @@ class OpenAPI_115:
                     return response
             return None
     
+    
     @handle_token_expiry
-    def del_faild_offline_task(self, info_hash):
+    def del_offline_task(self, info_hash, del_source_file=1):
         url = f"{self.base_url}/open/offline/del_task"
         data = {
             "info_hash": info_hash,
-            "del_source_file": 1
+            "del_source_file": del_source_file
         }
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
-            init.logger.info(f"清理失败的离线下载任务成功!")
+            if del_source_file == 1:
+                init.logger.info(f"清理失败的离线下载任务成功!")
+            else:
+                init.logger.info(f"清理已完成的云端任务成功!")
             return True
         else:
-            init.logger.warn(f"清理失败的离线下载任务失败: {response['message']}")
-            if response['code'] == 40140125:
-                return response
-            return None
-
-    @handle_token_expiry
-    def clear_cloud_task(self, flag=1):
-        url = f"{self.base_url}/open/offline/clear_task"
-        # 1清空全部、2清空失败、3清空进行中、4清空已完成、5清空全部任务并清空对应源文件
-        data = {
-            "flag": flag 
-        }
-        response = self._make_api_request('POST', url, data=data)
-        if response['state'] == True:
-            init.logger.info(f"清理云端任务成功！")
-            return True
-        else:
-            init.logger.warn(f"清理云端任务失败: {response['message']}")
+            init.logger.warn(f"清理离线下载任务失败: {response['message']}")
             if response['code'] == 40140125:
                 return response
             return None
@@ -744,6 +731,24 @@ class OpenAPI_115:
                 if response['code'] == 40140125:
                     return response
         return download_urls
+    
+    
+    @handle_token_expiry
+    def clear_cloud_task(self, flag=4):
+        url = f"{self.base_url}/open/offline/clear_task"
+        # 1清空全部、2清空失败、3清空进行中、4清空已完成、5清空全部任务并清空对应源文件
+        data = {
+            "flag": flag 
+        }
+        response = self._make_api_request('POST', url, data=data)
+        if response['state'] == True:
+            init.logger.info(f"清理云端任务成功！")
+            return True
+        else:
+            init.logger.warn(f"清理云端任务失败: {response['message']}")
+            if response['code'] == 40140125:
+                return response
+            return None
         
         
 
@@ -770,64 +775,39 @@ class OpenAPI_115:
     def check_offline_download_success(self, url, offline_timeout=300):
         time_out = 0
         task_name = ""
+        info_hash = ""
         while time_out < offline_timeout:
             tasks = self.get_offline_tasks()
             if not tasks:
-                return False, ""
-            
+                return False, "", ""
             for task in tasks:
                 # 判断任务的URL是否匹配
                 if task.get('url') == url:
                     task_name = task.get('name', '')
+                    info_hash = task.get('info_hash', '')
                     # 检查任务状态
                     if task.get('status') == 2 or task.get('percentDone') == 100:
                         init.logger.info(f"[{task_name}]离线下载任务成功！")
-                        return True, task_name
+                        return True, task_name, info_hash
                     else:
                         time.sleep(10)
                         time_out += 10
                     break
         init.logger.warn(f"[{task_name}]离线下载超时!")
-        return False, task_name
-    
-    def check_offline_download_success_no_waite(self, url):
-        task_name = ""
-        found_task = False
-        tasks = self.get_offline_tasks()
-        if not tasks:
-            return False, ""
-        
-        for task in tasks:
-            # 判断任务的URL是否匹配
-            if task.get('url') == url:
-                task_name = task.get('name', '')
-                found_task = True
-                # 检查任务状态
-                if task.get('status') == 2 or task.get('percentDone') == 100:
-                    init.logger.info(f"[{task_name}]离线下载任务成功！")
-                    return True, task_name
-                break  # 找到任务就退出循环，继续检查状态
-        
-        if found_task:
-            init.logger.warn(f"[{task_name}]离线下载任务未完成!")
-            return False, task_name
-        else:
-            init.logger.warn(f"未找到匹配的离线下载任务: {url}")
-            
-        return False, task_name
+        return False, task_name, info_hash
     
     
-    def clear_failed_task(self, url):
-        tasks = self.get_offline_tasks()
-        if not tasks:
-            return
-        info_hash = ""
-        for task in tasks:
-            if isinstance(task, dict) and task.get('url') == url:
-                info_hash = task.get('info_hash', '')
-                # 删除离线文件
-                self.del_faild_offline_task(info_hash)
-                break
+    # def clear_failed_task(self, url):
+    #     tasks = self.get_offline_tasks()
+    #     if not tasks:
+    #         return
+    #     info_hash = ""
+    #     for task in tasks:
+    #         if isinstance(task, dict) and task.get('url') == url:
+    #             info_hash = task.get('info_hash', '')
+    #             # 删除离线文件
+    #             self.del_offline_task(info_hash)
+    #             break
 
         
     def get_files_from_dir(self, path, file_type=4):
@@ -889,11 +869,16 @@ class OpenAPI_115:
     def create_dir_for_file(self, path, floder_name):
         file_info = self.get_file_info(path)
         if not file_info:
-            init.logger.warn(f"获取目录信息失败: {file_info}")
+            init.logger.warn(f"获取目录信息失败: {path}")
             return False
         
         # 创建文件夹
         self.create_directory(file_info['file_id'], floder_name)
+        time.sleep(3)
+        file_info = self.get_file_info(f"{path}/{floder_name}")
+        if not file_info:
+            init.logger.warn(f"获取目录信息失败: {path}/{floder_name}")
+            return False
         return True
         
     

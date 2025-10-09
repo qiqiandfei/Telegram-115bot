@@ -192,6 +192,7 @@ def get_response_from_api(url):
 
 
 def download_from_link(download_url, movie_name, save_path):
+    info_hash = ""
     try: 
         # 调用离线下载API，捕获可能的异常
         offline_success = init.openapi_115.offline_download_specify_path(download_url, save_path)
@@ -199,7 +200,7 @@ def download_from_link(download_url, movie_name, save_path):
             init.logger.error(f"❌ 离线遇到错误！")
         else:
             init.logger.info(f"✅ [`{download_url}`]添加离线成功")
-            download_success, resource_name = init.openapi_115.check_offline_download_success(download_url)
+            download_success, resource_name, info_hash = init.openapi_115.check_offline_download_success(download_url)
             if download_success:
                 init.logger.info(f"✅ [{resource_name}]离线下载完成")
                 time.sleep(1)
@@ -223,7 +224,7 @@ def download_from_link(download_url, movie_name, save_path):
                 return True
             else:
                 # 下载超时删除任务
-                init.openapi_115.clear_failed_task(download_url)
+                init.openapi_115.del_offline_task(info_hash)
                 init.logger.warn(f"😭离线下载超时，稍后将再次尝试!")
                 return False
     except Exception as e:

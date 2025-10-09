@@ -3,6 +3,7 @@
 import asyncio
 import init
 from telegram import Bot
+from telegram.helpers import escape_markdown
 
 # 全局消息队列
 message_queue = asyncio.Queue()

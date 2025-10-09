@@ -222,8 +222,12 @@ def initialize_115open():
 
 def check_user(user_id):
     global bot_config
-    if user_id == bot_config['allowed_user']:
-        return True
+    if isinstance(bot_config.get('allowed_user'), int):
+        if user_id == bot_config['allowed_user']:
+            return True
+    if isinstance(bot_config.get('allowed_user'), str):
+        if str(user_id) == bot_config['allowed_user']:
+            return True
     return False
 
 def create_tg_session_file():

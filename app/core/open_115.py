@@ -377,35 +377,66 @@ class OpenAPI_115:
                 return response
             return None
 
+    # @handle_token_expiry
+    # def move_file(self, source_path, target_path):
+    #     """移动文件或目录"""
+    #     src_file_info = self.get_file_info(source_path)
+    #     if not src_file_info:
+    #         init.logger.warn(f"获取源文件信息失败: {src_file_info}")
+    #         return False
+        
+    #     dst_file_info = self.get_file_info(target_path)
+    #     if not dst_file_info:
+    #         init.logger.warn(f"获取目标文件信息失败: {dst_file_info}")
+    #         return False
+        
+    #     file_id = src_file_info['file_id']
+    #     to_cid = dst_file_info['file_id']
+    #     url = f"{self.base_url}/open/ufile/move"
+    #     data = {
+    #         "file_ids": file_id,
+    #         "to_cid": to_cid
+    #     }
+    #     response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
+    #     if response['state'] == True:
+    #         init.logger.info(f"文件移动成功: [{source_path}] -> [{target_path}]")
+    #         return True
+    #     else:
+    #         init.logger.warn(f"文件移动失败: {response['message']}")
+    #         if response['code'] == 40140125:
+    #             return response
+    #         return None
+        
     @handle_token_expiry
-    def move_file(self, source_path, target_path):
-        """移动文件或目录"""
+    def copy_file(self, source_path, target_path, nodupli=1):
+        """复制文件或目录"""
         src_file_info = self.get_file_info(source_path)
         if not src_file_info:
             init.logger.warn(f"获取源文件信息失败: {src_file_info}")
             return False
-        
+
         dst_file_info = self.get_file_info(target_path)
         if not dst_file_info:
             init.logger.warn(f"获取目标文件信息失败: {dst_file_info}")
             return False
-        
+
         file_id = src_file_info['file_id']
         to_cid = dst_file_info['file_id']
-        url = f"{self.base_url}/open/ufile/move"
+        url = f"{self.base_url}/open/ufile/copy"
         data = {
-            "file_ids": file_id,
-            "to_cid": to_cid
+            "pid": to_cid,
+            "file_id": file_id,
+            "nodupli": nodupli
         }
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
-            init.logger.info(f"文件移动成功: [{source_path}] -> [{target_path}]")
+            init.logger.info(f"文件复制成功: [{source_path}] -> [{target_path}]")
             return True
         else:
-            init.logger.warn(f"文件移动失败: {response['message']}")
+            init.logger.warn(f"文件复制失败: {response['message']}")
             if response['code'] == 40140125:
                 return response
-            return None
+        return None
     
     @handle_token_expiry      
     def rename(self, old_name, new_name):
@@ -750,6 +781,20 @@ class OpenAPI_115:
                 return response
             return None
         
+    def move_file(self, source_path, target_path):
+        """移动文件或目录"""
+        copy_result = self.copy_file(source_path, target_path)
+        if copy_result == True:
+            delete_result = self.delete_single_file(source_path)
+            if delete_result == True:
+                return True
+            else:
+                init.logger.warn(f"移动文件失败: 删除源文件失败")
+                return False
+        else:
+            init.logger.warn(f"移动文件失败: 复制文件失败")
+            return False
+        
         
 
     def welcome_message(self):
@@ -787,7 +832,6 @@ class OpenAPI_115:
                     info_hash = task.get('info_hash', '')
                     # 检查任务状态
                     if task.get('status') == 2 or task.get('percentDone') == 100:
-                        init.logger.info(f"[{task_name}]离线下载任务成功！")
                         return True, task_name, info_hash
                     else:
                         time.sleep(10)
@@ -873,13 +917,7 @@ class OpenAPI_115:
             return False
         
         # 创建文件夹
-        self.create_directory(file_info['file_id'], floder_name)
-        time.sleep(3)
-        file_info = self.get_file_info(f"{path}/{floder_name}")
-        if not file_info:
-            init.logger.warn(f"获取目录信息失败: {path}/{floder_name}")
-            return False
-        return True
+        return self.create_directory(file_info['file_id'], floder_name)
         
     
     def auto_clean(self, path):
@@ -1177,7 +1215,8 @@ if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
     app = OpenAPI_115()
-    app.offline_download_specify_path("magnet:?xt=urn:btih:56D89F7BD61BE24E2E1374E5E3AFF9E256BA3D7", "/test")
+    app.create_dir_for_file("/test", "333")
+    app.move_file(f"/test/bjraw.21.05.13.skylar.vox.4k.zip", "/test/333")
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

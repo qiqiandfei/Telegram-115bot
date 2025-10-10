@@ -303,10 +303,10 @@ def download_task(link, selected_path, user_id):
                 init.openapi_115.auto_clean(final_path)
             else:
                 # 如果下载的内容是文件，为文件套一个文件夹
-                temp_folder = "temp"
+                temp_folder = Path(resource_name).stem
                 init.openapi_115.create_dir_for_file(selected_path, temp_folder)
                 # 移动文件到临时目录
-                init.openapi_115.move_file(f"{selected_path}/{resource_name}", f"{selected_path}/{temp_folder}")
+                init.openapi_115.move_file(final_path, f"{selected_path}/{temp_folder}")
                 final_path = f"{selected_path}/{temp_folder}"
                 resource_name = temp_folder
             

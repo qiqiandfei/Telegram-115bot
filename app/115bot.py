@@ -25,7 +25,7 @@ from app.handlers.crawl_handler import register_crawl_handlers
 
 
 def get_version(md_format=False):
-    version = "v3.2.14"
+    version = "v3.2.15"
     if md_format:
         return escape_markdown(version, version=2)
     return version
@@ -55,6 +55,8 @@ def get_help_info():
 • 查看当前重试列表，可根据需要选择是否清空\n
 <u>AV下载：</u>
 • 输入 <code>"/av 番号"</code>
+• 支持批量下载，一行一个链接
+• 支持接收txt文件下载，文件内容每行一个链接
 • 自动检索磁力并离线,默认不生成软链（建议使用削刮工具生成软链）\n
 <u>手动爬取涩花：</u>
 • 输入 <code>"/csh"</code>

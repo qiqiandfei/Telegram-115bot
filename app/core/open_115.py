@@ -765,9 +765,9 @@ class OpenAPI_115:
     
     
     @handle_token_expiry
-    def clear_cloud_task(self, flag=4):
+    def clear_cloud_task(self, flag=0):
         url = f"{self.base_url}/open/offline/clear_task"
-        # 1清空全部、2清空失败、3清空进行中、4清空已完成、5清空全部任务并清空对应源文件
+        # 清除任务类型：0清空已完成、1清空全部、2清空失败、3清空进行中、4清空已完成任务并清空对应源文件、5清空全部任务并清空对应源文件
         data = {
             "flag": flag 
         }

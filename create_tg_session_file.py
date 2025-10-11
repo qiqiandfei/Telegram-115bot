@@ -2,6 +2,11 @@
 # -*- coding: utf-8 -*-
 import os
 import asyncio
+import warnings
+
+# 过滤 Telethon 的异步会话实验性功能警告
+warnings.filterwarnings("ignore", message="Using async sessions support is an experimental feature")
+
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 

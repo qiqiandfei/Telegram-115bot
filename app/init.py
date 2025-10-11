@@ -171,7 +171,7 @@ def initialize_tg_usr_client():
     """
     global tg_user_client, bot_config, logger
     try:
-        if not (bot_config.get('tg_api_id') and bot_config.get('tg_api_hash') and bot_config.get('bot_name')):
+        if not bot_config.get('tg_api_id') or not bot_config.get('tg_api_hash') or not bot_config.get('bot_name'):
             logger.warn("缺少必要的Telegram API配置 (tg_api_id & tg_api_hash & bot_name), 无法使用视频上传功能。")
             tg_user_client = None
             return False

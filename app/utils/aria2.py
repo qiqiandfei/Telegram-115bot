@@ -76,19 +76,19 @@ def check_status_by_url(download_url):
             for task_url in task_urls:
                 # 完全匹配
                 if target_url == task_url:
-                    init.logger.info(f"完全匹配找到下载任务: {download.gid}")
+                    init.logger.debug(f"完全匹配找到下载任务: {download.gid}")
                     return get_status(download)
                 
                 # 忽略大小写匹配
                 if target_url.lower() == task_url.lower():
-                    init.logger.info(f"忽略大小写匹配找到下载任务: {download.gid}")
+                    init.logger.debug(f"忽略大小写匹配找到下载任务: {download.gid}")
                     return get_status(download)
                 
                 # URL编码匹配（有时URL可能被编码）
                 try:
                     from urllib.parse import unquote
                     if unquote(target_url).lower() == unquote(task_url).lower():
-                        init.logger.info(f"URL解码匹配找到下载任务: {download.gid}")
+                        init.logger.debug(f"URL解码匹配找到下载任务: {download.gid}")
                         return get_status(download)
                 except Exception:
                     pass
@@ -191,59 +191,42 @@ def get_status(download):
     }
     
 
+# def check_download_complete(download_url, check_interval=10):
+#     """检查下载任务是否完成"""
+#     message = ""
+#     while True:
+#         download_status = check_status_by_url(download_url)
+#         if download_status['status'] == "not_found":
+#             message = f"❌ [{download_status['name']}] 没有找到下载链接！"
+#             break
+#         elif download_status['status'] == "error":
+#             message = f"❌ [{download_status['name']}] 下载失败！"
+#             break
+#         elif download_status['status'] == "complete":
+#             message = f"✅ [{download_status['name']}] 下载完成！"
+#             break
+#         elif download_status['status'] == "paused":
+#             message = f"⏸️ [{download_status['name']}] 下载已暂停！"
+#             break
+#         else:
+#             init.logger.info(f" [{download_status['name']}], 下载状态: {download_status['status']}, 进度: {download_status.get('progress', 'N/A')}, 速度: {download_status.get('speed', 'N/A')}")
+#             time.sleep(check_interval)
+#     init.logger.info(message)
+    
+
 if __name__ == "__main__":
     init.create_logger()
     create_aria2_client("https://aria2.qiqiandfei.fun", 8843, "emp89aW0MhYUogku")
     
-    test_url = "https://cdnfhnfile.115cdn.net/68a941a4bbd6418ecd5a8f7bf9a135fdf9db7479/%E6%9E%81%E9%80%9F%E5%A5%B3%E7%A5%9E.Eenie.Meanie.2025.WEB-DL.1080p.X264.mkv?t=1758082642&u=12104725&s=524288000&d=vip-1928424613-eyy3kyc3amj7rzfpd-1-100197303&c=2&f=1&k=6997e6a0a8f0d06482d129a565b14fda&us=5242880000&uc=10&v=1"
+    test_url = "https://github.com/qiqiandfei/JavSpider/releases/download/v1.3/javspider_linux_amd64"
     
     print("添加下载任务...")
     download_task = download_by_url(test_url)
     
-    if download_task:
-        print(f"任务添加成功，GID: {download_task.gid}")
-        # 等待任务加载
-        print("等待3秒让任务加载...")
-        time.sleep(3)
-    else:
-        print("任务添加失败")
-    
-    # 先尝试列出所有任务
-    print("\n=== 当前所有下载任务 ===")
-    try:
-        downloads = aria2.get_downloads()
-        for i, download in enumerate(downloads):
-            print(f"任务{i+1}: GID={download.gid}, 状态={download.status}, 名称={download.name}")
-            urls = _extract_download_urls(download)
-            print(f"  URLs: {urls}")
-    except Exception as e:
-        print(f"获取任务列表失败: {e}")
-    
-    print(f"\n=== 开始监控下载状态 ===")
-    while True:
-        status = check_status_by_url(test_url)
-        print(f"状态检查结果: {status}")
-        time.sleep(5)
-        if status['status'] == "complete":
-            print("下载完成，停止检查")
-            break
-        elif status['status'] == "error":
-            print("下载出错，停止检查")
-            break
-        elif status['status'] == "not_found":
-            print("仍未找到匹配任务，继续等待...")
-            # 尝试通过GID检查（如果有的话）
-            if download_task and hasattr(download_task, 'gid'):
-                gid_status = check_status_by_gid(download_task.gid)
-                print(f"通过GID检查: {gid_status}")
+    # if download_task:
+    #     init.logger.info("等待下载完成...")
+    #     check_download_complete(test_url, check_interval=5)
+    # else:
+    #     init.logger.error("下载任务添加失败。")
         
-        # 防止无限循环，设置最大检查次数
-        if hasattr(check_status_by_url, '_check_count'):
-            check_status_by_url._check_count += 1
-        else:
-            check_status_by_url._check_count = 1
-            
-        if check_status_by_url._check_count > 20:  # 最多检查20次
-            print("达到最大检查次数，停止监控")
-            break
         

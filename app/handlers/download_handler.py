@@ -8,7 +8,8 @@ import init
 import re
 import time
 from pathlib import Path
-from app.utils.cover_capture import get_movie_cover, get_av_cover
+from app.utils.cover_capture import get_movie_cover
+from app.utils.message_queue import add_task_to_queue
 import requests
 from enum import Enum
 from warnings import filterwarnings
@@ -478,7 +479,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
                     )
                 else:
                     # 推送到aria2
-                   await push2aria2(new_final_path, cover_url, message, update, context)
+                    push2aria2(new_final_path, cover_url, message, update.effective_chat.id)
             except TelegramError as e:
                 init.logger.warn(f"Telegram API error: {e}")
             except Exception as e:
@@ -492,7 +493,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
                 )
             else:
                 # 推送到aria2
-                await push2aria2(new_final_path, cover_url, message, update, context)
+                push2aria2(new_final_path, cover_url, message, update.effective_chat.id)
         
         # 清除重命名数据，结束当前操作
         context.user_data.pop("rename_data", None)
@@ -508,7 +509,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop("rename_data", None)
         
         
-async def push2aria2(new_final_path, cover_url, message, update, context):
+def push2aria2(new_final_path, cover_url, message, user_id):
     
     # 为Aria2推送创建任务ID系统
     import uuid
@@ -530,20 +531,9 @@ async def push2aria2(new_final_path, cover_url, message, update, context):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if cover_url:
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id, 
-            photo=cover_url, 
-            caption=message,
-            parse_mode='MarkdownV2',
-            reply_markup=reply_markup
-        )
+        add_task_to_queue(user_id, cover_url, message=message, keyboard=reply_markup)
     else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=message,
-            parse_mode='MarkdownV2',
-            reply_markup=reply_markup
-        )
+        add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
 
 
 def register_download_handlers(application):

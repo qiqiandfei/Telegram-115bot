@@ -185,8 +185,18 @@ jobs:
           echo "🔍 Build Debug Information:"
           echo "Event name: ${{ github.event_name }}"
           echo "Should push: ${{ github.event_name != 'pull_request' }}"
+          echo "FORCE PUSH: true (debugging)"
           echo "Tags: ${{ steps.tags.outputs.tags }}"
           echo "Platforms: linux/amd64,linux/arm64"
+          echo "Registry: ${{ env.REGISTRY }}"
+          echo "Image name: ${{ env.IMAGE_NAME }}"
+          
+      - name: Verify Docker login
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "🔐 Testing Docker Hub authentication..."
+          docker info || echo "⚠️ Docker info failed"
+          echo "✅ Docker login appears successful"
           
       - name: Build and push Docker images
         uses: docker/build-push-action@v5
@@ -194,7 +204,8 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          # 🚨 强制推送，确保一定推送到 Docker Hub
+          push: true  # 强制推送，不管触发条件
           tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.labels.outputs.labels }}
           cache-from: type=gha
@@ -202,15 +213,47 @@ jobs:
           # 添加构建参数以强制区分不同构建
           build-args: |
             BUILDTIME=${{ steps.version.outputs.timestamp }}
+          # 添加详细输出
+          outputs: type=registry,push=true
           
-      - name: Verify multi-platform push
-        if: github.event_name != 'pull_request'
+      - name: Verify Docker Hub push success
         run: |
-          echo "🔍 Verifying multi-platform images..."
+          echo "🔍 Verifying images were pushed to Docker Hub..."
+          echo "📋 Expected tags: ${{ steps.tags.outputs.tags }}"
+          
+          # 等待几秒让 Docker Hub 处理
+          sleep 10
+          
+          # 检查每个标签
           for tag in $(echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n'); do
-            echo "Checking $tag:"
-            docker buildx imagetools inspect $tag || echo "⚠️ Failed to inspect $tag"
+            echo ""
+            echo "🏷️ Checking tag: $tag"
+            echo "----------------------------------------"
+            
+            # 方法1: 使用 docker buildx imagetools inspect
+            if docker buildx imagetools inspect $tag; then
+              echo "✅ Tag $tag exists and supports multi-platform"
+            else
+              echo "❌ Failed to verify tag $tag"
+            fi
+            
+            # 方法2: 使用 Docker Hub API 检查
+            echo "🌐 Checking via Docker Hub API..."
+            IMAGE_NAME=$(echo $tag | cut -d':' -f1)
+            TAG_NAME=$(echo $tag | cut -d':' -f2)
+            API_URL="https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${TAG_NAME}/"
+            
+            if curl -f -s "$API_URL" > /dev/null; then
+              echo "✅ Tag $tag confirmed via API"
+              # 显示架构信息
+              curl -s "$API_URL" | jq -r '.images[]? | "  - \(.architecture)/\(.os)"' || echo "  - API response parsing failed"
+            else
+              echo "❌ Tag $tag not found via API"
+            fi
           done
+          
+          echo ""
+          echo "🎯 推送验证完成！如果看到 ✅ 说明推送成功"
           
       - name: Build summary
         if: github.event_name != 'pull_request'

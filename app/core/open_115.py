@@ -85,7 +85,7 @@ class OpenAPI_115:
         if not self.refresh_token or not self.access_token:
             if not os.path.exists(init.TOKEN_FILE):
                 app_id = init.bot_config.get('115_app_id')
-                if app_id and app_id.lower() != "your_115_app_id":
+                if app_id and str(app_id).lower() != "your_115_app_id":
                     init.logger.info("正在进入PKCE授权流程，获取refresh_token...")
                     self.auth_pkce(init.bot_config['allowed_user'], app_id)
                 else:
@@ -1215,8 +1215,8 @@ if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
     app = OpenAPI_115()
-    app.create_dir_for_file("/test", "333")
-    app.move_file(f"/test/bjraw.21.05.13.skylar.vox.4k.zip", "/test/333")
+    m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
+    print(m3u8_url)
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

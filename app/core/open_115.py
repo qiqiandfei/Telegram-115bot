@@ -1212,11 +1212,12 @@ def get_parent_paths(path):
 
 
 if __name__ == "__main__":
-    init.init_log()
-    init.load_yaml_config()
-    app = OpenAPI_115()
-    m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
-    print(m3u8_url)
+    pass
+    # init.init_log()
+    # init.load_yaml_config()
+    # app = OpenAPI_115()
+    # m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
+    # print(m3u8_url)
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

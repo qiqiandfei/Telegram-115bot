@@ -180,6 +180,14 @@ jobs:
           
           echo "labels=${LABELS}" >> $GITHUB_OUTPUT
 
+      - name: Debug build info
+        run: |
+          echo "🔍 Build Debug Information:"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Should push: ${{ github.event_name != 'pull_request' }}"
+          echo "Tags: ${{ steps.tags.outputs.tags }}"
+          echo "Platforms: linux/amd64,linux/arm64"
+          
       - name: Build and push Docker images
         uses: docker/build-push-action@v5
         with:
@@ -191,6 +199,18 @@ jobs:
           labels: ${{ steps.labels.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # 添加构建参数以强制区分不同构建
+          build-args: |
+            BUILDTIME=${{ steps.version.outputs.timestamp }}
+          
+      - name: Verify multi-platform push
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "🔍 Verifying multi-platform images..."
+          for tag in $(echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n'); do
+            echo "Checking $tag:"
+            docker buildx imagetools inspect $tag || echo "⚠️ Failed to inspect $tag"
+          done
           
       - name: Build summary
         if: github.event_name != 'pull_request'

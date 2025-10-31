@@ -27,7 +27,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: qiqiandfei/telegram-115bot  # 替换为您的Docker Hub用户名/仓库名
+  IMAGE_NAME: qiqiandfei/115-bot  # 替换为您的Docker Hub用户名/仓库名
 
 jobs:
   build:

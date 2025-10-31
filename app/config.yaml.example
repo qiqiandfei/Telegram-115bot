@@ -17,7 +17,7 @@ allowed_user: your_user_id
 
 # 机器人名称 例如：@your_bot_name 
 # 非必填，转存视频需要
-bote_name: "@your_bot_name"
+bot_name: "@your_bot_name"
 
 # telegram 的api信息 
 # 非必填，转存视频需要

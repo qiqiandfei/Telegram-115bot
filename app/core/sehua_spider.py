@@ -381,12 +381,12 @@ def get_section_update(section_name, date):
             init.logger.info(f"正在获取 {section_name} 第 {page_num} 页...")
             
             success = False
-            max_retries = 3
+            max_retries = 10
             
             for retry in range(max_retries):
                 try:
                     if page_num > 1 or retry > 0:  # 第一个请求不延迟
-                        delay = random.uniform(2, 5)
+                        delay = random.uniform(5, 10)
                         time.sleep(delay)
                     
                     # 访问目标页面

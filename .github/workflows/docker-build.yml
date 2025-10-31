@@ -1,0 +1,223 @@
+name: Build Multi-Platform Docker Images with Triple Tags
+
+on:
+  # 1. 推送到 main 分支时触发（避免重复构建）
+  push:
+    branches:
+      - main        # 只在推送到主分支时构建
+      
+  # 2. Pull Request 时触发（仅构建测试，不推送）
+  pull_request:
+    branches:
+      - main
+      
+  # 3. 手动触发（可选自定义版本号）
+  workflow_dispatch:
+    inputs:
+      custom_version:
+        description: '自定义版本号 (支持 v 前缀，如: v3.2.19 或 3.2.19, 留空则自动检测)'
+        required: false
+        default: ''
+        type: string
+      force_rebuild:
+        description: '强制重建（忽略缓存）'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: qiqiandfei/telegram-115bot  # 替换为您的Docker Hub用户名/仓库名
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract version from commit or tag
+        id: version
+        run: |
+          # 设置基础信息
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          SHORT_SHA=${GITHUB_SHA::7}
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          echo "🔍 Analyzing version sources..."
+          echo "📝 Commit message: ${COMMIT_MSG}"
+          echo "🔗 GitHub ref: ${GITHUB_REF}"
+          
+          # 1. 优先级1: 手动触发的自定义版本
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.custom_version }}" ]]; then
+            VERSION="${{ github.event.inputs.custom_version }}"
+            # 如果手动输入没有 v 前缀且是版本号格式，自动添加 v 前缀
+            if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              VERSION="v${VERSION}"
+            fi
+            VERSION_SOURCE="manual_input"
+            echo "✅ Using manual input version: ${VERSION}"
+            
+          # 2. 优先级2: Git 标签（如 v3.2.19）
+          elif [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            # 保留 v 前缀，如果没有则添加
+            if [[ ! "$VERSION" =~ ^v ]]; then
+              VERSION="v${VERSION}"
+            fi
+            VERSION_SOURCE="git_tag"
+            echo "✅ Using git tag version: ${VERSION}"
+            
+          # 3. 优先级3: 从 commit 消息中提取版本号（支持多种格式）
+          elif echo "${COMMIT_MSG}" | grep -qE "(v?[0-9]+\.[0-9]+\.[0-9]+)"; then
+            # 提取版本号: 支持 v3.2.19, 3.2.19, version 3.2.19 等格式
+            VERSION=$(echo "${COMMIT_MSG}" | grep -oE "(v?[0-9]+\.[0-9]+\.[0-9]+)" | head -n1)
+            # 确保有 v 前缀
+            if [[ ! "$VERSION" =~ ^v ]]; then
+              VERSION="v${VERSION}"
+            fi
+            VERSION_SOURCE="commit_message"
+            echo "✅ Extracted version from commit message: ${VERSION}"
+            
+          # 4. 优先级4: 查找最近的 git 标签
+          elif git describe --tags --abbrev=0 2>/dev/null; then
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
+            # 保留原始标签格式，但确保有 v 前缀
+            if [[ ! "$LATEST_TAG" =~ ^v ]]; then
+              LATEST_TAG="v${LATEST_TAG}"
+            fi
+            VERSION="$LATEST_TAG"
+            # 如果不是当前提交的标签，添加后缀
+            if [[ "$(git rev-list -n 1 ${LATEST_TAG})" != "${GITHUB_SHA}" ]]; then
+              VERSION="${VERSION}-${SHORT_SHA}"
+            fi
+            VERSION_SOURCE="latest_git_tag"
+            echo "✅ Using latest git tag: ${VERSION}"
+            
+          # 5. 默认: 生成基于时间戳的版本
+          else
+            if [[ $GITHUB_REF == refs/heads/main ]]; then
+              VERSION="${TIMESTAMP}-${SHORT_SHA}"
+              VERSION_SOURCE="timestamp_main"
+            elif [[ $GITHUB_REF == refs/heads/develop ]]; then
+              VERSION="dev-${TIMESTAMP}-${SHORT_SHA}"
+              VERSION_SOURCE="timestamp_dev"
+            else
+              BRANCH_NAME=${GITHUB_REF#refs/heads/}
+              BRANCH_NAME=${BRANCH_NAME//\//-}
+              VERSION="${BRANCH_NAME}-${TIMESTAMP}-${SHORT_SHA}"
+              VERSION_SOURCE="timestamp_branch"
+            fi
+            echo "⚠️ No version found, generated: ${VERSION}"
+          fi
+          
+          # 输出版本信息
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_source=${VERSION_SOURCE}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "📋 Version Summary:"
+          echo "🏷️ Final version: ${VERSION}"
+          echo "📍 Source: ${VERSION_SOURCE}"
+          echo "📅 Timestamp: ${TIMESTAMP}"
+          echo "🔍 Short SHA: ${SHORT_SHA}"
+
+      - name: Prepare tags
+        id: tags
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # PR 只构建测试，使用特殊标签
+            TAGS="${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
+            echo "🔄 PR build - Tag: pr-${{ github.event.number }}"
+          else
+            # 正常构建 - 创建三个标签
+            TAGS="${{ env.IMAGE_NAME }}:latest"
+            TAGS="${TAGS},${{ env.IMAGE_NAME }}:beta" 
+            TAGS="${TAGS},${{ env.IMAGE_NAME }}:${VERSION}"
+            
+            echo "🏷️ Building with triple tags:"
+            echo "   📌 latest"
+            echo "   🧪 beta" 
+            echo "   🔢 ${VERSION}"
+          fi
+          
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      - name: Generate labels
+        id: labels
+        run: |
+          LABELS="org.opencontainers.image.title=Telegram-115Bot"
+          LABELS="${LABELS},org.opencontainers.image.description=A Telegram bot for 115 cloud storage management"
+          LABELS="${LABELS},org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+          LABELS="${LABELS},org.opencontainers.image.version=${{ steps.version.outputs.version }}"
+          LABELS="${LABELS},org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          LABELS="${LABELS},org.opencontainers.image.revision=${{ github.sha }}"
+          LABELS="${LABELS},org.opencontainers.image.url=https://github.com/${{ github.repository }}"
+          
+          echo "labels=${LABELS}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.labels.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Build summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Built Images:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:beta\`" >> $GITHUB_STEP_SUMMARY  
+          echo "- \`${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Build Info:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version Source:** ${{ steps.version.outputs.version_source }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch/Tag:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** ${{ steps.version.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Usage:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Latest stable version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Beta version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:beta" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Specific version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

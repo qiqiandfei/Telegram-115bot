@@ -206,7 +206,7 @@ def download_from_link(download_url, movie_name, save_path):
                 time.sleep(1)
                 if init.openapi_115.is_directory(f"{save_path}/{resource_name}"):
                     # 清除垃圾文件
-                    init.openapi_115.auto_clean(f"{save_path}/{resource_name}")
+                    init.openapi_115.auto_clean_all(f"{save_path}/{resource_name}")
                     # 重名名资源
                     init.openapi_115.rename(f"{save_path}/{resource_name}", f"{save_path}/{movie_name}")
                 else:

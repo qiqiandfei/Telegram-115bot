@@ -172,6 +172,37 @@ async def handle_download_failure(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("✅ 已取消，可尝试更换磁力重试！")
 
 
+async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理取消按钮的回调"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # 从callback_data中提取task_id
+        task_id = query.data.replace("cancel_", "")
+        
+        # 从全局存储中清理任务数据
+        if hasattr(init, 'pending_tasks') and task_id in init.pending_tasks:
+            task_data = init.pending_tasks[task_id]
+            resource_name = task_data.get('resource_name', '未知资源')
+            
+            # 清理任务数据
+            del init.pending_tasks[task_id]
+            
+            # 清理用户上下文中的重命名数据（如果存在）
+            if "rename_data" in context.user_data:
+                del context.user_data["rename_data"]
+            
+            await query.edit_message_text(f"✅ 已取消对资源 `{resource_name}` 的重命名操作！", parse_mode='MarkdownV2')
+            init.logger.info(f"用户取消了对资源 {resource_name} 的重命名操作")
+        else:
+            await query.edit_message_text("✅ 重命名操作已取消！")
+            
+    except Exception as e:
+        init.logger.error(f"处理取消重命名操作时出错: {str(e)}")
+        await query.edit_message_text("✅ 重命名操作已取消！")
+
+
 async def quit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 检查是否是回调查询
     if update.callback_query:
@@ -301,7 +332,7 @@ def download_task(link, selected_path, user_id):
             final_path = f"{selected_path}/{resource_name}"
             if init.openapi_115.is_directory(final_path):
                 # 如果下载的内容是目录，清除垃圾文件
-                init.openapi_115.auto_clean(final_path)
+                init.openapi_115.auto_clean_all(final_path)
             else:
                 # 如果下载的内容是文件，为文件套一个文件夹
                 temp_folder = Path(resource_name).stem
@@ -330,7 +361,8 @@ def download_task(link, selected_path, user_id):
             
             # 发送下载成功通知，包含选择按钮
             keyboard = [
-                [InlineKeyboardButton("指定标准的TMDB名称", callback_data=f"rename_{task_id}")]
+                [InlineKeyboardButton("指定标准的TMDB名称", callback_data=f"rename_{task_id}")],
+                [InlineKeyboardButton("取消", callback_data=f"cancel_{task_id}")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             message = f"✅ 电影\\[`{resource_name}`\\]离线下载完成\\!\n\n便于削刮，请为资源指定TMDB的标准名称！"
@@ -557,6 +589,7 @@ def register_download_handlers(application):
     # 添加独立的回调处理器处理异步任务的后续操作
     application.add_handler(CallbackQueryHandler(handle_manual_rename_callback, pattern=r"^rename_"))
     application.add_handler(CallbackQueryHandler(handle_retry_callback, pattern=r"^retry_"))
+    application.add_handler(CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_"))
     application.add_handler(CallbackQueryHandler(handle_download_failure, pattern=r"^cancel_download$"))
     
     # 添加消息处理器处理重命名输入（使用较低优先级的组别）

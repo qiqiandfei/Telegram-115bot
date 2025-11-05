@@ -265,7 +265,7 @@ def download_task(av_result, av_number, save_path, user_id):
                     init.openapi_115.rename(old_name, av_number.upper())
                 
                 # 删除垃圾
-                init.openapi_115.auto_clean(f"{save_path}/{av_number.upper()}")
+                init.openapi_115.auto_clean_all(f"{save_path}/{av_number.upper()}")
                 
                 # 提取封面
                 cover_url, title = get_av_cover(av_number.upper())

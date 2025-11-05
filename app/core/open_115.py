@@ -533,6 +533,39 @@ class OpenAPI_115:
             if response['code'] == 40140125:
                 return response
             return None
+    
+    def _batch_delete_files(self, fid_list, batch_size=100):
+        """分批删除文件，避免单次请求过长
+        
+        Args:
+            fid_list: 文件ID列表
+            batch_size: 每批删除的文件数量，默认100
+        """
+        if not fid_list:
+            return
+            
+        total_files = len(fid_list)
+        init.logger.info(f"准备分批删除 {total_files} 个文件，每批 {batch_size} 个")
+        
+        # 分批处理
+        for i in range(0, total_files, batch_size):
+            batch = fid_list[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (total_files + batch_size - 1) // batch_size
+            
+            init.logger.info(f"正在执行第 {batch_num}/{total_batches} 批删除操作，共 {len(batch)} 个文件")
+            
+            file_ids = ",".join(batch)
+            result = self.delet_file(file_ids)
+            
+            if result is True:
+                init.logger.info(f"第 {batch_num} 批删除成功")
+            else:
+                init.logger.warn(f"第 {batch_num} 批删除失败: {result}")
+            
+            # 批次间添加短暂延迟，避免请求过快
+            if i + batch_size < total_files:
+                time.sleep(1)
         
     @handle_token_expiry
     def delete_single_file(self, path):
@@ -960,8 +993,7 @@ class OpenAPI_115:
                 init.logger.info(f"[{file['fn']}]已添加到清理列表")
         
         if fid_list:
-            file_ids = ",".join(fid_list)
-            self.delet_file(file_ids)
+            self._batch_delete_files(fid_list)
             
             
     def auto_clean_by_id(self, file_id):
@@ -999,8 +1031,7 @@ class OpenAPI_115:
                 init.logger.info(f"[{file['fn']}]已添加到清理列表")
         
         if fid_list:
-            file_ids = ",".join(fid_list)
-            self.delet_file(file_ids)
+            self._batch_delete_files(fid_list)
             
     
     def auto_clean_all(self, path):
@@ -1036,8 +1067,20 @@ class OpenAPI_115:
             init.logger.info(f"[{file['fn']}]已添加到清理列表")
         
         if fid_list:
-            file_ids = ",".join(fid_list)
-            self.delet_file(file_ids)
+            self._batch_delete_files(fid_list)
+            
+        empty_dir_list = self.find_all_empty_dirs(file_info['file_id'], 0)
+        if not empty_dir_list:
+            init.logger.info(f"[{path}]下没有找到需要清理的空目录！")
+            return
+        
+        fid_list = []
+        for dir in empty_dir_list:
+            fid_list.append(dir['fid'])
+            init.logger.info(f"[{dir['fn']}]已添加到清理列表")
+            
+        if fid_list:
+            self._batch_delete_files(fid_list)
 
     def find_all_junk_files(self, cid, offset, byte_size, file_list=None, limit=1150):
         """
@@ -1093,6 +1136,53 @@ class OpenAPI_115:
             # 已经找到所有小于目标大小的文件，过滤掉大于等于目标大小的文件
             junk_files = [f for f in file_list if f['fs'] < byte_size]
             return junk_files
+        
+    def find_all_empty_dirs(self, cid, offset, empty_dir_list=None, limit=1150):
+        """
+        递归查找所有空目录
+        
+        使用分页查询和目录名称排序优化，当最后一个目录名称不为空时继续递归查找，
+        否则停止查询并过滤返回空目录。
+        
+        Args:
+            cid: 目录ID
+            offset: 偏移量，用于分页
+            empty_dir_list: 已找到的空目录列表，用于递归累积
+            limit: 每页查询的目录数量，默认1150
+            
+        Returns:
+            list: 所有空目录列表，包含目录的fid、fn等信息
+        """
+        if empty_dir_list is None:
+            empty_dir_list = []
+            
+        params = {
+            "cid": cid,
+            "limit": limit,
+            "show_dir": 1,
+            "custom_order": 1,
+            "asc": 1,
+            "o": "file_size",
+            "stdir": 1,
+            "offset": offset
+        }
+        
+        # 获取当前页的目录列表
+        current_dirs = self.get_file_list(params)
+        
+        # 如果API调用失败或没有获取到目录，说明已经到末尾或出现错误
+        if not current_dirs:
+            return empty_dir_list
+            
+        # 检查每个目录是否为空
+        for dir in current_dirs:
+            if dir['fc'] == '0':  # 仅处理目录
+                file_info = self.get_file_info_by_id(dir['fid'])
+                time.sleep(0.2)  # 避免请求过快
+                if file_info['size_byte'] == 0:
+                    empty_dir_list.append(dir)
+        
+        return empty_dir_list
 
 
     def create_dir_recursive(self, path):
@@ -1215,6 +1305,12 @@ if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
     app = OpenAPI_115()
+    empty_dir_list = app.find_all_empty_dirs("3290900366746047311", 0)
+    if not empty_dir_list:
+        init.logger.info("没有找到空目录")
+    else:
+        for dir in empty_dir_list:
+            init.logger.info(f"找到空目录: {dir['fn']}")
     # m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
     # print(m3u8_url)
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")

@@ -75,7 +75,7 @@ def try_to_offline2115_again():
                     # 处理下载成功后的清理和重命名准备
                     if init.openapi_115.is_directory(f"{save_path}/{resource_name}"):
                         # 清除垃圾文件
-                        init.openapi_115.auto_clean(f"{save_path}/{resource_name}")
+                        init.openapi_115.auto_clean_all(f"{save_path}/{resource_name}")
                         old_name = f"{save_path}/{resource_name}"
                     else:
                         init.openapi_115.create_dir_for_file(f"{save_path}", "temp")

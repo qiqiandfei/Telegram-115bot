@@ -426,6 +426,19 @@ def get_section_update(section_name, date):
             
             if not success:
                 init.logger.warn(f"第 {page_num} 页获取失败，跳过")
+                # 如果是第一页就失败，说明可能遇到严重问题，安排延迟重试
+                if page_num == 1:
+                    init.logger.error(f"❌ [{section_name}] 分区第1页获取失败，安排延迟重试")
+                    try:
+                        # 导入scheduler模块并安排延迟重试
+                        from app.core.scheduler import schedule_sehua_retry
+                        schedule_sehua_retry(section_name, date, delay_minutes=30)
+                        init.logger.warn(f"⏰ 已安排 [{section_name}] 分区30分钟后重试")
+                        return []  # 返回空列表，终止当前爬取
+                    except Exception as scheduler_error:
+                        init.logger.error(f"安排延迟重试时出错: {str(scheduler_error)}")
+                        # 即使调度器出错，也要终止当前爬取避免无限循环
+                        return []
                 break
                 
     except Exception as e:

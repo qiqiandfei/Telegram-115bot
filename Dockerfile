@@ -1,11 +1,6 @@
 FROM python:3.13.0-slim
 LABEL authors="qiqiandfei"
 
-# 构建时间参数（用于强制重建和调试）
-ARG BUILDTIME=unknown
-LABEL buildtime="${BUILDTIME}"
-RUN echo "🏗️ Build time: ${BUILDTIME}"
-
 # 安装系统依赖和Playwright所需的库
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

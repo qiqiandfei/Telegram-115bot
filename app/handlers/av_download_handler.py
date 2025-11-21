@@ -278,6 +278,7 @@ def download_task(av_result, av_number, save_path, user_id):
 
 **番号:** `{msg_av_number}`
 **标题:** `{av_title}`
+**磁力:** `{magnet}`
 **保存目录:** `{save_path}/{av_number.upper()}`
                 """           
                 if not init.aria2_client:

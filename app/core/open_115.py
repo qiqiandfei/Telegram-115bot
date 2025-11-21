@@ -376,36 +376,6 @@ class OpenAPI_115:
             if response['code'] == 40140125:
                 return response
             return None
-
-    # @handle_token_expiry
-    # def move_file(self, source_path, target_path):
-    #     """移动文件或目录"""
-    #     src_file_info = self.get_file_info(source_path)
-    #     if not src_file_info:
-    #         init.logger.warn(f"获取源文件信息失败: {src_file_info}")
-    #         return False
-        
-    #     dst_file_info = self.get_file_info(target_path)
-    #     if not dst_file_info:
-    #         init.logger.warn(f"获取目标文件信息失败: {dst_file_info}")
-    #         return False
-        
-    #     file_id = src_file_info['file_id']
-    #     to_cid = dst_file_info['file_id']
-    #     url = f"{self.base_url}/open/ufile/move"
-    #     data = {
-    #         "file_ids": file_id,
-    #         "to_cid": to_cid
-    #     }
-    #     response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
-    #     if response['state'] == True:
-    #         init.logger.info(f"文件移动成功: [{source_path}] -> [{target_path}]")
-    #         return True
-    #     else:
-    #         init.logger.warn(f"文件移动失败: {response['message']}")
-    #         if response['code'] == 40140125:
-    #             return response
-    #         return None
         
     @handle_token_expiry
     def copy_file(self, source_path, target_path, nodupli=1):
@@ -872,19 +842,6 @@ class OpenAPI_115:
                     break
         init.logger.warn(f"[{task_name}]离线下载超时!")
         return False, task_name, info_hash
-    
-    
-    # def clear_failed_task(self, url):
-    #     tasks = self.get_offline_tasks()
-    #     if not tasks:
-    #         return
-    #     info_hash = ""
-    #     for task in tasks:
-    #         if isinstance(task, dict) and task.get('url') == url:
-    #             info_hash = task.get('info_hash', '')
-    #             # 删除离线文件
-    #             self.del_offline_task(info_hash)
-    #             break
 
         
     def get_files_from_dir(self, path, file_type=4):
@@ -1178,7 +1135,9 @@ class OpenAPI_115:
         for dir in current_dirs:
             if dir['fc'] == '0':  # 仅处理目录
                 file_info = self.get_file_info_by_id(dir['fid'])
-                time.sleep(0.2)  # 避免请求过快
+                if not file_info:
+                    continue
+                time.sleep(0.5)  # 避免请求过快
                 if file_info['size_byte'] == 0:
                     empty_dir_list.append(dir)
         
@@ -1359,5 +1318,4 @@ if __name__ == "__main__":
     # welcome_text = app.welcome_message()
     # init.logger.info(welcome_text)
     # app.clear_cloud_task()  # 清理云端任务
-
 

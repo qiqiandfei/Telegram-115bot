@@ -171,6 +171,14 @@ def initialize_tg_usr_client():
     """
     global tg_user_client, bot_config, logger
     try:
+        # 兼容老版本的配置项拼写错误
+        mistake = bot_config.get('bote_name', "")
+        if mistake:
+            logger.warn("检测到配置项 'bote_name'（拼写错误），已自动迁移到 'bot_name'。")
+            bot_config['bot_name'] = mistake
+            # 清理错误的配置项
+            bot_config.pop('bote_name', None)
+            
         if not bot_config.get('tg_api_id') or not bot_config.get('tg_api_hash') or not bot_config.get('bot_name'):
             logger.warn("缺少必要的Telegram API配置 (tg_api_id & tg_api_hash & bot_name), 无法使用视频上传功能。")
             tg_user_client = None

@@ -2,10 +2,49 @@
 import init
 import time
 import os
+import asyncio
 from app.utils.sqlitelib import *
 from app.utils.message_queue import add_task_to_queue
 from telegram.helpers import escape_markdown
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+
+def wait_for_message_queue_completion(task_name="任务", timeout=0):
+    """
+    等待消息队列中的所有任务完成（包括正在发送的消息）
+    
+    Args:
+        task_name: 任务名称，用于日志输出
+        timeout: 超时时间（秒），0表示无限期等待，默认为0
+    """
+    from app.utils.message_queue import message_queue, global_loop
+    
+    init.logger.info(f"等待{task_name}通知发送完成...")
+    
+    if global_loop:
+        try:
+            # 使用 queue.join() 等待所有任务完成（包括正在处理的）
+            future = asyncio.run_coroutine_threadsafe(
+                message_queue.join(),
+                global_loop
+            )
+            # timeout=None 表示无限期等待
+            future.result(timeout=None if timeout == 0 else timeout)
+            init.logger.info(f"所有{task_name}通知已发送完成，开始清理流程")
+        except Exception as e:
+            init.logger.error(f"等待消息队列完成时出错: {e}")
+            # 降级方案：使用原有逻辑
+            while not message_queue.empty():
+                init.logger.debug(f"消息队列还有 {message_queue.qsize()} 个任务待处理，等待中...")
+                time.sleep(5)
+            time.sleep(10)  # 额外等待10秒确保最后的消息发送完成
+            init.logger.info(f"所有{task_name}通知已发送完成（降级方案），开始清理流程")
+    else:
+        init.logger.warn("事件循环未初始化，使用降级方案等待")
+        while not message_queue.empty():
+            time.sleep(5)
+        time.sleep(10)
+        init.logger.info(f"所有{task_name}通知已发送完成（降级方案），开始清理流程")
 
 
 def offline_task_retry():
@@ -85,12 +124,7 @@ def sehua_offline():
                 break
             
     # 等待消息队列处理完成，避免在消息发送期间删除图片文件
-    from app.utils.message_queue import message_queue
-    init.logger.info("等待涩花通知发送完成...")
-    while not message_queue.empty():
-        init.logger.debug(f"消息队列还有 {message_queue.qsize()} 个任务待处理，等待中...")
-        time.sleep(5)  # 每5秒检查一次
-    init.logger.info("所有通知已发送完成，开始清理流程")
+    wait_for_message_queue_completion("涩花")
 
     # 从共享列表中获取最终的成功计数
     domestic_original_success = success_counters[0]
@@ -271,12 +305,7 @@ def av_daily_offline():
                 break
             
     # 等待消息队列处理完成，避免在消息发送期间进行清理操作
-    from app.utils.message_queue import message_queue
-    init.logger.info("等待AV日更通知发送完成...")
-    while not message_queue.empty():
-        init.logger.debug(f"消息队列还有 {message_queue.qsize()} 个任务待处理，等待中...")
-        time.sleep(5)  # 每5秒检查一次
-    init.logger.info("所有通知已发送完成，开始清理流程")
+    wait_for_message_queue_completion("AV日更")
             
     # 发送总结消息
     total_count = len(update_list)

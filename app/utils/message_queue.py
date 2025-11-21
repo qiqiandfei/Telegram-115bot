@@ -74,21 +74,29 @@ async def queue_worker(loop, token):
             
             # 根据是否有图片和键盘选择发送方式
             if post_url:
-                # 发送图片消息
+                # 发送图片消息（增加超时时间）
                 await bot.send_photo(
                     chat_id=sub_user,
                     photo=post_url,
                     caption=message,
                     parse_mode="MarkdownV2",
-                    reply_markup=keyboard
+                    reply_markup=keyboard,
+                    read_timeout=30,  # 读取超时30秒
+                    write_timeout=30,  # 写入超时30秒
+                    connect_timeout=10,  # 连接超时10秒
+                    pool_timeout=10  # 连接池超时10秒
                 )
             else:
-                # 发送纯文本消息
+                # 发送纯文本消息（增加超时时间）
                 await bot.send_message(
                     chat_id=sub_user,
                     text=message,
                     parse_mode="MarkdownV2",
-                    reply_markup=keyboard
+                    reply_markup=keyboard,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=10,
+                    pool_timeout=10
                 )
                 
             init.logger.info(f"消息已发送至 {sub_user}")
@@ -99,7 +107,14 @@ async def queue_worker(loop, token):
         except Exception as e:
             # 处理发送失败的情况
             error_msg = str(e)
-            init.logger.warn(f"队列任务处理失败 (尝试 {retry_count + 1}/3): {error_msg}")
+            
+            # 区分超时错误和其他错误
+            is_timeout = "Timed out" in error_msg or "TimeoutError" in error_msg
+            
+            if is_timeout:
+                init.logger.warn(f"消息发送超时 (尝试 {retry_count + 1}/3): {error_msg}，但消息可能已成功发送")
+            else:
+                init.logger.warn(f"队列任务处理失败 (尝试 {retry_count + 1}/3): {error_msg}")
             
             try:
                 # 标记当前任务完成（避免队列阻塞）
@@ -123,6 +138,11 @@ async def queue_worker(loop, token):
                         init.logger.error(f"❌ 遇到不可重试错误，直接放弃: {error_msg}")
                         break
                 
+                # 超时错误不重试（因为消息很可能已经发送成功）
+                if is_timeout:
+                    init.logger.info(f"⚠️ 超时错误不重试，假定消息已成功发送")
+                    should_retry = False
+                
                 # 检查是否需要重试
                 if should_retry and retry_count < 2:  # 最多重试2次（总共3次尝试）
                     # 重新入队，增加重试计数
@@ -137,9 +157,11 @@ async def queue_worker(loop, token):
                     # 超过最大重试次数或遇到不可重试错误，记录最终失败
                     if should_retry:
                         init.logger.error(f"❌ 任务重试次数已达上限，放弃重试: 用户[{sub_user}], 错误: {error_msg}")
-                    else:
+                        init.logger.error(f"❌ 失败消息内容: {message}")
+                    elif not is_timeout:
                         init.logger.error(f"❌ 任务因不可重试错误直接放弃: 用户[{sub_user}], 错误: {error_msg}")
-                    init.logger.error(f"❌ 失败消息内容: {message}")
+                        init.logger.error(f"❌ 失败消息内容: {message}")
+                    # 超时错误不记录为失败（因为消息可能已经成功发送）
                     
             except Exception as retry_error:
                 init.logger.error(f"重试处理失败: {retry_error}")

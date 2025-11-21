@@ -3,6 +3,7 @@ import requests
 import init
 from bs4 import BeautifulSoup
 import time
+from pathlib import Path
 from app.utils.sqlitelib import *
 from app.handlers.download_handler import create_strm_file, notice_emby_scan_library
 from app.utils.message_queue import add_task_to_queue
@@ -220,7 +221,7 @@ def download_from_link(download_url, movie_name, save_path):
                 # 创建软链
                 create_strm_file(f"{save_path}/{movie_name}", file_list)
                 # 通知Emby扫库
-                notice_emby_scan_library()
+                notice_emby_scan_library(f"{save_path}/{movie_name}")
                 return True
             else:
                 # 下载超时删除任务

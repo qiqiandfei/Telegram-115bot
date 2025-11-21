@@ -274,7 +274,13 @@ def create_strm_file(new_name, file_list):
         init.logger.info(f"Error creating .strm files: {e}")
 
 
-def notice_emby_scan_library():
+def notice_emby_scan_library(path):
+    strm_root = Path(init.bot_config.get("strm_root", ""))
+    if not strm_root:
+        init.logger.warn("未设置strm_root，无法扫库！")
+        return False
+    relative_path = Path(path).relative_to(Path(path).anchor)
+    movie_path_in_emby = strm_root / relative_path
     emby_server = init.bot_config['emby_server']
     api_key = init.bot_config['api_key']
     if api_key is None or api_key.strip() == "" or api_key.strip().lower() == "your_api_key":
@@ -282,11 +288,22 @@ def notice_emby_scan_library():
         return False
     if str(emby_server).endswith("/"):
         emby_server = emby_server[:-1]
-    url = f"{emby_server}/Library/Refresh"
+    # url = f"{emby_server}/Library/Refresh"
+    url = f"{emby_server}/Library/Media/Updated"
     headers = {
-        "X-Emby-Token": api_key
+        "accept": "*/*",
+        "X-Emby-Token": api_key,
+        "Content-Type": "application/json"
     }
-    emby_response = requests.post(url, headers=headers)
+    data = {
+        "Updates": [
+            {
+                "Path": str(movie_path_in_emby),
+                "UpdateType": "Created"
+            }
+        ]
+    }
+    emby_response = requests.post(url, headers=headers, json=data)
     if emby_response.text == "":
         init.logger.info("通知Emby扫库成功！")
         return True
@@ -371,7 +388,7 @@ def download_task(link, selected_path, user_id):
             
         else:
             # 下载超时，删除任务并提供选择
-            init.openapi_115.delete_failed_task(info_hash)
+            init.openapi_115.del_offline_task(info_hash)
             init.logger.warn(f"❌ {resource_name} 离线下载超时")
             
             # 为失败重试也使用时间戳ID
@@ -493,7 +510,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         
         # 通知Emby扫库
-        is_noticed = notice_emby_scan_library()
+        is_noticed = notice_emby_scan_library(new_final_path)
         if is_noticed:
             message = f"✅ 重命名成功：`{new_resource_name}`\n\n**👻 已通知Emby扫库，请稍后确认！**"
         else:

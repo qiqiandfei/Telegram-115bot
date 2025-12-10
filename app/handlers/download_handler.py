@@ -172,37 +172,6 @@ async def handle_download_failure(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("✅ 已取消，可尝试更换磁力重试！")
 
 
-async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理取消按钮的回调"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        # 从callback_data中提取task_id
-        task_id = query.data.replace("cancel_", "")
-        
-        # 从全局存储中清理任务数据
-        if hasattr(init, 'pending_tasks') and task_id in init.pending_tasks:
-            task_data = init.pending_tasks[task_id]
-            resource_name = task_data.get('resource_name', '未知资源')
-            
-            # 清理任务数据
-            del init.pending_tasks[task_id]
-            
-            # 清理用户上下文中的重命名数据（如果存在）
-            if "rename_data" in context.user_data:
-                del context.user_data["rename_data"]
-            
-            await query.edit_message_text(f"✅ 已取消对资源 `{resource_name}` 的重命名操作！", parse_mode='MarkdownV2')
-            init.logger.info(f"用户取消了对资源 {resource_name} 的重命名操作")
-        else:
-            await query.edit_message_text("✅ 重命名操作已取消！")
-            
-    except Exception as e:
-        init.logger.error(f"处理取消重命名操作时出错: {str(e)}")
-        await query.edit_message_text("✅ 重命名操作已取消！")
-
-
 async def quit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 检查是否是回调查询
     if update.callback_query:
@@ -288,7 +257,6 @@ def notice_emby_scan_library(path):
         return False
     if str(emby_server).endswith("/"):
         emby_server = emby_server[:-1]
-    # url = f"{emby_server}/Library/Refresh"
     url = f"{emby_server}/Library/Media/Updated"
     headers = {
         "accept": "*/*",
@@ -452,6 +420,37 @@ async def handle_manual_rename_callback(update: Update, context: ContextTypes.DE
     except Exception as e:
         init.logger.error(f"处理手动重命名回调失败: {e}")
         await query.edit_message_text("❌ 处理失败，请稍后再试")
+        
+        
+async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理取消按钮的回调"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # 从callback_data中提取task_id
+        task_id = query.data.replace("cancel_", "")
+        
+        # 从全局存储中清理任务数据
+        if hasattr(init, 'pending_tasks') and task_id in init.pending_tasks:
+            task_data = init.pending_tasks[task_id]
+            resource_name = task_data.get('resource_name', '未知资源')
+            
+            # 清理任务数据
+            del init.pending_tasks[task_id]
+            
+            # 清理用户上下文中的重命名数据（如果存在）
+            if "rename_data" in context.user_data:
+                del context.user_data["rename_data"]
+            
+            await query.edit_message_text(f"✅ 已取消对资源 `{resource_name}` 的重命名操作！", parse_mode='MarkdownV2')
+            init.logger.info(f"用户取消了对资源 {resource_name} 的重命名操作")
+        else:
+            await query.edit_message_text("✅ 重命名操作已取消！")
+            
+    except Exception as e:
+        init.logger.error(f"处理取消重命名操作时出错: {str(e)}")
+        await query.edit_message_text("✅ 重命名操作已取消！")
 
 
 async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -510,7 +509,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         
         # 通知Emby扫库
-        is_noticed = notice_emby_scan_library(new_final_path)
+        is_noticed = notice_emby_scan_library(selected_path)
         if is_noticed:
             message = f"✅ 重命名成功：`{new_resource_name}`\n\n**👻 已通知Emby扫库，请稍后确认！**"
         else:
@@ -609,12 +608,6 @@ def register_download_handlers(application):
     application.add_handler(CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_"))
     application.add_handler(CallbackQueryHandler(handle_download_failure, pattern=r"^cancel_download$"))
     
-    # 添加消息处理器处理重命名输入（使用较低优先级的组别）
-    # group=1 表示优先级低于默认的 group=0
-    # application.add_handler(MessageHandler(
-    #     filters.TEXT & ~filters.COMMAND, 
-    #     handle_manual_rename
-    # ), group=1)
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)'), 
         handle_manual_rename

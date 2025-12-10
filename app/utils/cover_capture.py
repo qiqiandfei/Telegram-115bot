@@ -8,6 +8,8 @@ sys.path.append(current_dir)
 import requests
 from bs4 import BeautifulSoup
 import init
+import asyncio
+import time
 from app.core.headless_browser import *
 
 
@@ -129,37 +131,53 @@ def is_movie_exist(movie_name, name_list):
 def get_av_cover(query):
     title = f"[{query}]已下好，但源没抓到~"
     cover_url = f"{init.IMAGE_PATH}/no_image.png"
-    try:
+    
+    async def _async_get_av_cover():
+        nonlocal title, cover_url
         browser = HeadlessBrowser("https://avmoo.website/cn")
+        await browser.init_browser()
         if not browser.page:
-            return "", ""
-        search_url = f"https://avmoo.website/cn/search/{query}"
-        browser.page.goto(search_url, wait_until="domcontentloaded")
-        html = browser.page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-        # 找到class为"item"的div
-        item_div = soup.find('div', class_='item')
-        # 在item_div中找到a标签，class为"movie-box"
-        movie_link = item_div.find('a', class_='movie-box')
-        link = movie_link['href']  # 获取href属性
-        if link and link.startswith('//'):
-            link = f"https:{link}"
-        img_tag = movie_link.find('img')
-        title = img_tag['title']
-        browser.page.goto(link, wait_until="domcontentloaded")
-        html = browser.page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-        screencap_div = soup.find('div', class_='screencap')
-        big_image_link = screencap_div.find('a', class_='bigImage')
-        cover_url = big_image_link['href'] 
+            return
+
+        try:
+            search_url = f"https://avmoo.website/cn/search/{query}"
+            await browser.page.goto(search_url, wait_until="domcontentloaded")
+            html = await browser.page.content()
+            soup = BeautifulSoup(html, 'html.parser')
+            # 找到class为"item"的div
+            item_div = soup.find('div', class_='item')
+            if not item_div:
+                return
+            # 在item_div中找到a标签，class为"movie-box"
+            movie_link = item_div.find('a', class_='movie-box')
+            if not movie_link:
+                return
+            link = movie_link['href']  # 获取href属性
+            if link and link.startswith('//'):
+                link = f"https:{link}"
+            img_tag = movie_link.find('img')
+            if img_tag:
+                title = img_tag['title']
+            
+            await browser.page.goto(link, wait_until="domcontentloaded")
+            html = await browser.page.content()
+            soup = BeautifulSoup(html, 'html.parser')
+            screencap_div = soup.find('div', class_='screencap')
+            if screencap_div:
+                big_image_link = screencap_div.find('a', class_='bigImage')
+                if big_image_link:
+                    cover_url = big_image_link['href'] 
+        except Exception as e:
+            init.logger.error(f"获取AV封面内部错误: {e}")
+        finally:
+            await browser.close()
+
+    try:
+        asyncio.run(_async_get_av_cover())
     except Exception as e:
         init.logger.error(f"获取AV封面失败: {e}")
-        if 'browser' in locals():
-            browser.close()
-    finally:
-        if 'browser' in locals():
-            browser.close()
-        return cover_url, title
+        
+    return cover_url, title
 
 def is_av_exist(div_list):
     """

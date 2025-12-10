@@ -142,6 +142,8 @@ async def queue_worker(loop, token):
                 if is_timeout:
                     init.logger.info(f"⚠️ 超时错误不重试，假定消息已成功发送")
                     should_retry = False
+                    # 超时后也要等待，给Telegram服务器时间处理
+                    await asyncio.sleep(5)
                 
                 # 检查是否需要重试
                 if should_retry and retry_count < 2:  # 最多重试2次（总共3次尝试）
@@ -163,6 +165,12 @@ async def queue_worker(loop, token):
                         init.logger.error(f"❌ 失败消息内容: {message}")
                     # 超时错误不记录为失败（因为消息可能已经成功发送）
                     
+                    # 无论如何都要等待一下，避免连续错误
+                    if not is_timeout:
+                        await asyncio.sleep(3)
+                    
             except Exception as retry_error:
                 init.logger.error(f"重试处理失败: {retry_error}")
+                # 确保有等待时间
+                await asyncio.sleep(3)
         

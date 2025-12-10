@@ -16,9 +16,10 @@ import yaml
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.parse import urlparse
-from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from app.core.offline_task_retry import sehua_offline
 from app.core.headless_browser import *
+import asyncio
 
 # 全局browser
 browser = None
@@ -30,7 +31,7 @@ def get_base_url():
     return base_url
 
 
-def download_image(image_url, save_path):
+async def download_image(image_url, save_path):
     """
     使用全局浏览器下载外链图片并保存到本地
     专门用于下载外部图片链接，使用最简单可靠的方法
@@ -62,10 +63,10 @@ def download_image(image_url, save_path):
         # 直接访问图片URL（最简单可靠的方法）
         try:
             init.logger.debug("尝试直接访问图片URL...")
-            page.set_extra_http_headers({
+            await page.set_extra_http_headers({
                 'Referer': f'https://{get_base_url()}/'
             })
-            response = page.goto(image_url, wait_until="domcontentloaded", timeout=30000)
+            response = await page.goto(image_url, wait_until="domcontentloaded", timeout=30000)
             
             if response and response.status == 200:
                 # 检查Content-Type是否为图片
@@ -76,7 +77,7 @@ def download_image(image_url, save_path):
                     init.logger.debug("检测到图片内容，开始下载...")
                     
                     # 获取图片数据
-                    image_data = response.body()
+                    image_data = await response.body()
 
                     # 获取文件名
                     filename = get_image_name(image_url)
@@ -127,13 +128,14 @@ def get_section_id(section_name):
     return section_map.get(section_name, 0)
 
 
-def sehua_spider_start():
+async def sehua_spider_start_async():
     """完整的爬虫启动函数，包含浏览器生命周期管理"""
     global browser
     if not init.bot_config.get('sehua_spider', {}).get('enable', False):
         return
     # 初始化全局浏览器
     browser = HeadlessBrowser(get_base_url())
+    await browser.init_browser()
     
     if not browser.page:
         return
@@ -144,26 +146,33 @@ def sehua_spider_start():
         for section in sections:
             section_name = section.get('name')
             init.logger.info(f"开始爬取 {section_name} 分区...")
-            section_spider(section_name, date)
+            await section_spider(section_name, date)
             init.logger.info(f"{section_name} 分区爬取完成")
             delay = random.uniform(30, 60)
-            time.sleep(delay)
-        # 离线到115
-        init.logger.info("开始执行涩花离线任务...")
-        sehua_offline()
+            await asyncio.sleep(delay)
     except Exception as e:
         init.logger.warn(f"爬取 {section_name} 分区时发生错误: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
         # 关闭全局浏览器
-        browser.close()
+        await browser.close()
+
+def sehua_spider_start():
+    try:
+        asyncio.run(sehua_spider_start_async())
+        # 离线到115 (Sync)
+        init.logger.info("开始执行涩花离线任务...")
+        sehua_offline()
+    except Exception as e:
+        init.logger.error(f"涩花爬虫启动失败: {e}")
         
         
-def sehua_spider_by_date(date):
+async def sehua_spider_by_date_async(date):
     """完整的爬虫启动函数，包含浏览器生命周期管理"""
     global browser
     browser = HeadlessBrowser(get_base_url())
+    await browser.init_browser()
     # 初始化全局浏览器
     if not browser.page:
         return
@@ -172,26 +181,33 @@ def sehua_spider_by_date(date):
         for section in sections:
             section_name = section.get('name')
             init.logger.info(f"开始爬取 {section_name} 分区...")
-            section_spider(section_name, date)
+            await section_spider(section_name, date)
             init.logger.info(f"{section_name} 分区爬取完成")
             delay = random.uniform(30, 60)
-            time.sleep(delay)
-        # 离线到115
-        init.logger.info("开始执行涩花离线任务...")
-        sehua_offline()
+            await asyncio.sleep(delay)
     except Exception as e:
         init.logger.warn(f"爬取 {section_name} 分区时发生错误: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
         # 关闭全局浏览器
-        browser.close()
+        await browser.close()
+        init.CRAWL_SEHUA_STATUS = 0
+
+def sehua_spider_by_date(date):
+    try:
+        asyncio.run(sehua_spider_by_date_async(date))
+        # 离线到115 (Sync)
+        init.logger.info("开始执行涩花离线任务...")
+        sehua_offline()
+    except Exception as e:
+        init.logger.error(f"涩花爬虫(按日期)启动失败: {e}")
         init.CRAWL_SEHUA_STATUS = 0
     
     
-def section_spider(section_name, date):
+async def section_spider(section_name, date):
     
-    update_list = get_section_update(section_name, date)
+    update_list = await get_section_update(section_name, date)
     
     if not update_list:
         init.logger.info(f"没有找到 {section_name} 在 {date} 的更新内容")
@@ -219,21 +235,21 @@ def section_spider(section_name, date):
                     if i > 0:  # 第一个请求不延迟
                         delay = random.uniform(2, 5)
                         init.logger.debug(f"等待 {delay:.1f} 秒...")
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                     
                     # 尝试访问页面
                     init.logger.debug(f"  尝试访问 (第 {retry+1} 次)...")
-                    page.goto(url, wait_until="domcontentloaded")
+                    await page.goto(url, wait_until="domcontentloaded")
                     
                     # 检查年龄验证
-                    age_check(page)
+                    await age_check(page)
                     
                     # 等待页面完全加载
-                    page.wait_for_load_state("networkidle", timeout=30000)
+                    await page.wait_for_load_state("networkidle", timeout=30000)
                     
-                    html = page.content()
+                    html = await page.content()
                     if html and len(html) > 1000:  # 确保获取到完整页面
-                        result = parse_topic(section_name, html, url, date)
+                        result = await parse_topic(section_name, html, url, date)
                         if result and result.get('title'):
                             init.logger.debug(f"成功解析: {result.get('title', 'Unknown')}")
                             results.append(result)
@@ -250,11 +266,11 @@ def section_spider(section_name, date):
                     if retry < max_retries - 1:
                         wait_time = (retry + 1) * 10  # 递增等待时间
                         init.logger.debug(f"  等待 {wait_time} 秒后重试...")
-                        time.sleep(wait_time)
+                        await asyncio.sleep(wait_time)
                 except Exception as e:
                     init.logger.warn(f"第 {retry+1} 次尝试出错: {str(e)}")
                     if retry < max_retries - 1:
-                        time.sleep(5)
+                        await asyncio.sleep(5)
             
             if not success:
                 init.logger.warn(f"所有重试都失败，跳过此链接")
@@ -264,7 +280,7 @@ def section_spider(section_name, date):
             if (i + 1) % 5 == 0:
                 extra_delay = random.uniform(10, 20)
                 init.logger.info(f"已处理 {i+1} 个页面，休息 {extra_delay:.1f} 秒...")
-                time.sleep(extra_delay)
+                await asyncio.sleep(extra_delay)
         
         # 写入数据库
         if results:
@@ -277,14 +293,15 @@ def section_spider(section_name, date):
         init.logger.info(f"本次爬取结束 - 成功: {successful_count}, 失败: {failed_count}")
         # 注意：这里不关闭浏览器，保持cookie
             
-def parse_topic(section_name, html, url, date):
+async def parse_topic(section_name, html, url, date):
     soup = BeautifulSoup(html, "html.parser")
     result = {}
     result['section_name'] = section_name
     result['publish_date'] = date
     result['pub_url'] = url
     result['save_path'] = get_sehua_save_path(section_name)
-    title = soup.find('span', {'id': 'thread_subject'}).text
+    title_tag = soup.find('span', {'id': 'thread_subject'})
+    title = title_tag.text if title_tag else None
     if title:
         result['title'] = title
         if section_name == '国产原创':
@@ -333,7 +350,7 @@ def parse_topic(section_name, html, url, date):
         
         # 下载图片到本地保存到tmp
         if result['post_url']:
-            success, local_path = download_image(result['post_url'], f"{init.TEMP}/sehua")
+            success, local_path = await download_image(result['post_url'], f"{init.TEMP}/sehua")
             if success:
                 init.logger.debug(f"图片已下载到: {local_path}")
                 result['image_path'] = local_path
@@ -365,7 +382,7 @@ def parse_topic(section_name, html, url, date):
     return result
 
 
-def get_section_update(section_name, date):
+async def get_section_update(section_name, date):
     all_data_today = []
     section_id = get_section_id(section_name)
     if section_id == 0:
@@ -387,17 +404,17 @@ def get_section_update(section_name, date):
                 try:
                     if page_num > 1 or retry > 0:  # 第一个请求不延迟
                         delay = random.uniform(5, 10)
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                     
                     # 访问目标页面
-                    page.goto(url, wait_until="domcontentloaded")
-                    age_check(page)
+                    await page.goto(url, wait_until="domcontentloaded")
+                    await age_check(page)
                     
                     # 等待页面完全加载
-                    browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
+                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
 
                     # 获取页面 HTML
-                    html = page.content()
+                    html = await page.content()
                     if html and len(html) > 1000:
                         # 验证页面是否包含预期的内容结构
                         if 'normalthread_' in html or 'postlist' in html:
@@ -418,11 +435,11 @@ def get_section_update(section_name, date):
                 except PlaywrightTimeoutError as e:
                     init.logger.warn(f"第 {retry+1} 次尝试超时: {str(e)}")
                     if retry < max_retries - 1:
-                        time.sleep((retry + 1) * 10)
+                        await asyncio.sleep((retry + 1) * 10)
                 except Exception as e:
                     init.logger.warn(f"第 {retry+1} 次尝试出错: {str(e)}")
                     if retry < max_retries - 1:
-                        time.sleep(5)
+                        await asyncio.sleep(5)
             
             if not success:
                 init.logger.warn(f"第 {page_num} 页获取失败，跳过")
@@ -499,26 +516,26 @@ def parse_section_page(html_content, date, page_num):
     return topics
 
 
-def age_check(page):
+async def age_check(page):
     try:
         # 等待页面基本加载
-        browser.wait_for_page_loaded(timeout=15000)
+        await browser.wait_for_page_loaded(timeout=15000)
         
-        content = page.content()
+        content = await page.content()
         init.logger.debug(f"  当前页面URL: {page.url}")
         init.logger.debug(f"  页面内容长度: {len(content)}")
         
         if "满18岁，请点此进入" in content:
             init.logger.info("  检测到年龄验证页面，正在点击进入...")
             try:
-                page.click("text=满18岁，请点此进入", timeout=10000)
+                await page.click("text=满18岁，请点此进入", timeout=10000)
                 
                 # 等待页面跳转并完全加载
                 init.logger.debug("  等待页面跳转和加载...")
-                browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']", ".t_f"])
+                await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']", ".t_f"])
                 
                 # 验证页面是否成功跳转
-                new_content = page.content()
+                new_content = await page.content()
                 if len(new_content) > len(content):
                     init.logger.info(f"  年龄验证通过，页面已加载 (内容长度: {len(new_content)})")
                 else:
@@ -528,14 +545,14 @@ def age_check(page):
                 init.logger.warn(f"  点击年龄验证按钮失败: {str(click_error)}")
                 # 尝试其他方式
                 try:
-                    page.get_by_text("满18岁，请点此进入").click(timeout=10000)
-                    browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
+                    await page.get_by_text("满18岁，请点此进入").click(timeout=10000)
+                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
                     init.logger.debug("  使用备用方式通过年龄验证")
                 except Exception as backup_error:
                     init.logger.warn(f"  备用年龄验证方式也失败: {str(backup_error)}")
         else:
             # 即使没有年龄验证，也要等待页面完全加载
-            browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
+            await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
             
     except Exception as e:
         init.logger.warn(f"  年龄验证处理出错: {str(e)}")
@@ -568,11 +585,20 @@ def save_sehua2db(results):
                 match_strategyed, specify_path = match_strategy(result)
                 if not match_strategyed:
                     continue
-                # 检查是否已存在（通过标题和发布日期判断）
-                sql_check = "select count(*) from sehua_data where title = ?"
-                params_check = (result.get('title'), )
+                # 检查是否已存在（通过磁力链接Hash判断，忽略tracker等参数差异）
+                magnet_hash = get_magnet_hash(result.get('magnet'))
+                if magnet_hash:
+                    # 如果能提取到hash，使用模糊匹配查询
+                    sql_check = "select count(*) from sehua_data where magnet LIKE ?"
+                    params_check = (f'%{magnet_hash}%', )
+                else:
+                    # 提取不到hash，回退到完全匹配
+                    sql_check = "select count(*) from sehua_data where magnet = ?"
+                    params_check = (result.get('magnet'), )
+
                 count = sqlite.query_one(sql_check, params_check)
                 if count > 0:
+                    init.logger.info(f"[{result.get('title')}]检测到相同磁力链接(Hash: {magnet_hash})已存在，跳过入库！")
                     continue  # 已存在，跳过
                 
                 # 判断数据完整性
@@ -690,6 +716,16 @@ def get_sehua_save_path(_section_name):
         if section_name == _section_name:
             return section.get('save_path', f'/AV/涩花/{section_name}')
     return f'/AV/涩花/{_section_name}'
+
+def get_magnet_hash(magnet):
+    if not magnet:
+        return None
+    # 匹配 hex (40) 或 base32 (32)
+    pattern = r"urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})"
+    match = re.search(pattern, magnet, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    return None
 
 def check_magnet(magnet):
     pattern = r"^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.*)?$"

@@ -209,7 +209,7 @@ def download_from_link(download_url, movie_name, save_path):
                     # 清除垃圾文件
                     init.openapi_115.auto_clean_all(f"{save_path}/{resource_name}")
                     # 重名名资源
-                    init.openapi_115.rename(f"{save_path}/{resource_name}", f"{save_path}/{movie_name}")
+                    init.openapi_115.rename(f"{save_path}/{resource_name}", movie_name)
                 else:
                     # 创建文件夹
                     init.openapi_115.create_dir_for_file(f"{save_path}", movie_name)
@@ -221,7 +221,7 @@ def download_from_link(download_url, movie_name, save_path):
                 # 创建软链
                 create_strm_file(f"{save_path}/{movie_name}", file_list)
                 # 通知Emby扫库
-                notice_emby_scan_library(f"{save_path}/{movie_name}")
+                notice_emby_scan_library(save_path)
                 return True
             else:
                 # 下载超时删除任务

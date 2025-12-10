@@ -30,6 +30,12 @@ def wait_for_message_queue_completion(task_name="任务", timeout=0):
             )
             # timeout=None 表示无限期等待
             future.result(timeout=None if timeout == 0 else timeout)
+            
+            # 额外等待，确保最后的消息真正发送完成
+            # 因为超时错误虽然调用了task_done()，但消息可能还在Telegram服务器处理中
+            init.logger.debug(f"队列已清空，额外等待5秒确保消息完全发送...")
+            time.sleep(5)
+            
             init.logger.info(f"所有{task_name}通知已发送完成，开始清理流程")
         except Exception as e:
             init.logger.error(f"等待消息队列完成时出错: {e}")
@@ -155,9 +161,12 @@ def sehua_offline():
         init.logger.info(f"[高清中文字幕]离线任务完成情况: {hd_subtitle_success}/{hd_subtitle_count}")
 
     # 只有当有任务时才发送消息
-    if messages:
+    if messages: 
         final_message = "**涩花离线任务完成情况:**\n" + "\n".join(messages)
-        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
+        if domestic_original_success + asia_censored_success + asia_uncensored_success + hd_subtitle_success > 0:
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
+        else:
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/tuiche.jpg", final_message)
     
     # 删除垃圾文件
     for path in save_path_list:

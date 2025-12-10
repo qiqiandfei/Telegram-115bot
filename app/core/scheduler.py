@@ -125,8 +125,13 @@ def cancel_existing_retry(section_name):
 
 def reschedule_on_failure(section_name, date, original_delay_minutes):
     """重试失败后的再次调度策略"""
-    # 递增延迟策略：30分钟 → 60分钟 → 120分钟 → 240分钟（4小时上限）
-    new_delay = min(original_delay_minutes * 2, 240)  # 最多等待4小时
+    # 如果上次延迟已经是 120 分钟（2小时），则不再重试
+    if original_delay_minutes >= 120:
+        init.logger.error(f"❌ [{section_name}] 分区重试已达到最大时限(2小时)，停止重试")
+        return
+
+    # 递增延迟策略：30分钟 → 60分钟 → 120分钟（2小时上限）
+    new_delay = min(original_delay_minutes * 2, 120)  # 最多等待2小时
     
     init.logger.warn(f"⏰ [{section_name}] 分区重试仍失败，将在 {new_delay} 分钟后再次重试")
     schedule_sehua_retry(section_name, date, new_delay)

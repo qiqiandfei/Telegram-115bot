@@ -28,6 +28,7 @@ class DownloadUrlType(Enum):
     ED2K = "ED2K"
     THUNDER = "thunder"
     MAGNET = "magnet"
+    HTTP = "http"
     UNKNOWN = "unknown"
     
     def __str__(self):
@@ -186,7 +187,8 @@ def is_valid_link(link: str) -> DownloadUrlType:
     patterns = {
         DownloadUrlType.MAGNET: r'^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.+)?$',
         DownloadUrlType.ED2K: r'^ed2k://\|file\|.+\|[0-9]+\|[a-fA-F0-9]{32}\|',
-        DownloadUrlType.THUNDER: r'^thunder://[a-zA-Z0-9=]+'
+        DownloadUrlType.THUNDER: r'^thunder://[a-zA-Z0-9=]+',
+        DownloadUrlType.HTTP: r'^(http|https)://[^\s]+$'
     }
     
     # 检查基本链接类型
@@ -590,7 +592,7 @@ def register_download_handlers(application):
         # entry_points=[CommandHandler("dl", start_d_command)],
          entry_points=[
             MessageHandler(
-                filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)(?!.*\n).+$'),
+                filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://|http://|https://)(?!.*\n).+$'),
                 start_d_command
             )
         ],
@@ -609,7 +611,7 @@ def register_download_handlers(application):
     application.add_handler(CallbackQueryHandler(handle_download_failure, pattern=r"^cancel_download$"))
     
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://)'), 
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://|http://|https://)'), 
         handle_manual_rename
     ), group=1)
     init.logger.info("✅ Downloader处理器已注册")

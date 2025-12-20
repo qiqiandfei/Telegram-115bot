@@ -536,6 +536,8 @@ class OpenAPI_115:
             # 批次间添加短暂延迟，避免请求过快
             if i + batch_size < total_files:
                 time.sleep(1)
+        # 等待服务器处理删除请求
+        time.sleep(10)
         
     @handle_token_expiry
     def delete_single_file(self, path):
@@ -812,8 +814,8 @@ class OpenAPI_115:
             vip_info = user_info.get('vip_info', {})
             expire_date = datetime.fromtimestamp(vip_info.get('expire', 0), tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
             line1 = escape_markdown(f"👋 [{user_name}]您好， 欢迎使用Telegram-115Bot！", version=2)
-            line2 = escape_markdown(f"会员等级：{vip_info.get('level_name', '')}；到期时间：{expire_date}", version=2)
-            line3 = escape_markdown(f"总空间：{total_space} 已用：{used_space} 剩余：{remaining_space}", version=2)
+            line2 = escape_markdown(f"会员等级：{vip_info.get('level_name', '')} \n到期时间：{expire_date}", version=2)
+            line3 = escape_markdown(f"总空间：{total_space} \n已用：{used_space} \n剩余：{remaining_space}", version=2)
             line4 = escape_markdown(f"离线配额：{quota_info['used']}/{quota_info['count']}", version=2)   
             return line1, line2, line3, line4
         else:
@@ -1025,19 +1027,20 @@ class OpenAPI_115:
         
         if fid_list:
             self._batch_delete_files(fid_list)
-            
-        empty_dir_list = self.find_all_empty_dirs(file_info['file_id'], 0)
-        if not empty_dir_list:
-            init.logger.info(f"[{path}]下没有找到需要清理的空目录！")
-            return
         
-        fid_list = []
-        for dir in empty_dir_list:
-            fid_list.append(dir['fid'])
-            init.logger.info(f"[{dir['fn']}]已添加到清理列表")
+        # 暂时关闭空目录清理功能
+        # empty_dir_list = self.find_all_empty_dirs(file_info['file_id'], 0)
+        # if not empty_dir_list:
+        #     init.logger.info(f"[{path}]下没有找到需要清理的空目录！")
+        #     return
+        
+        # fid_list = []
+        # for dir in empty_dir_list:
+        #     fid_list.append(dir['fid'])
+        #     init.logger.info(f"[{dir['fn']}]已添加到清理列表")
             
-        if fid_list:
-            self._batch_delete_files(fid_list)
+        # if fid_list:
+        #     self._batch_delete_files(fid_list)
 
     def find_all_junk_files(self, cid, offset, byte_size, file_list=None, limit=1150):
         """
@@ -1137,7 +1140,7 @@ class OpenAPI_115:
                 file_info = self.get_file_info_by_id(dir['fid'])
                 if not file_info:
                     continue
-                time.sleep(0.5)  # 避免请求过快
+                time.sleep(0.1)  # 避免请求过快
                 if file_info['size_byte'] == 0:
                     empty_dir_list.append(dir)
         
@@ -1264,7 +1267,7 @@ if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
     app = OpenAPI_115()
-    empty_dir_list = app.find_all_empty_dirs("3290900366746047311", 0)
+    empty_dir_list = app.find_all_empty_dirs("3248474341122887756", 0)
     if not empty_dir_list:
         init.logger.info("没有找到空目录")
     else:

@@ -212,6 +212,8 @@ async def select_sub_category_video(update: Update, context: ContextTypes.DEFAUL
     file_size = os.path.getsize(new_file_path)
     # 计算文件的SHA1值
     sha1_value = file_sha1(new_file_path)
+    # 创建115文件夹路径
+    init.openapi_115.create_dir_recursive(selected_path)
     # 上传至115
     is_upload, bingo = init.openapi_115.upload_file(target=selected_path,
                                        file_name=Path(new_file_path).name,

@@ -20,9 +20,14 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from app.core.offline_task_retry import sehua_offline
 from app.core.headless_browser import *
 import asyncio
+import multiprocessing
+import threading
+import app.utils.message_queue as mq_module
 
 # 全局browser
 browser = None
+# 全局重试队列（子进程用）
+retry_info_queue = None
 
 def get_base_url():
     base_url = init.bot_config.get('sehua_spider', {}).get('base_url', "www.sehuatang.net")
@@ -158,14 +163,105 @@ async def sehua_spider_start_async():
         # 关闭全局浏览器
         await browser.close()
 
-def sehua_spider_start():
+def start_mq_service():
+    """在子进程中启动消息队列服务"""
+    # 重置消息队列和循环
+    mq_module.message_queue = asyncio.Queue()
+    mq_module.global_loop = None
+    
+    def run_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        token = init.bot_config.get('bot_token')
+        if token:
+            loop.create_task(mq_module.queue_worker(loop, token))
+            loop.run_forever()
+        else:
+            init.logger.error("无法启动子进程消息队列：未找到bot_token")
+
+    t = threading.Thread(target=run_loop, daemon=True)
+    t.start()
+    # 等待循环启动
+    time.sleep(1)
+
+def _run_spider_task(retry_queue=None):
+    """实际执行任务的函数，将在子进程中运行"""
+    global retry_info_queue
+    exit_code = 0
+    if retry_queue:
+        retry_info_queue = retry_queue
+        
     try:
+        # 启动独立的消息队列服务
+        start_mq_service()
+
         asyncio.run(sehua_spider_start_async())
         # 离线到115 (Sync)
         init.logger.info("开始执行涩花离线任务...")
         sehua_offline()
+        init.logger.info("涩花爬虫子进程任务全部完成")
     except Exception as e:
-        init.logger.error(f"涩花爬虫启动失败: {e}")
+        init.logger.error(f"涩花爬虫内部执行出错: {e}")
+        import traceback
+        traceback.print_exc()
+        exit_code = 1
+    finally:
+        # 停止消息队列循环
+        try:
+            if mq_module.global_loop and mq_module.global_loop.is_running():
+                 init.logger.info("正在停止子进程消息队列服务...")
+                 mq_module.global_loop.call_soon_threadsafe(mq_module.global_loop.stop)
+        except Exception as e:
+            init.logger.error(f"停止消息队列服务失败: {e}")
+        
+        sys.exit(exit_code)
+
+def sehua_spider_start():
+    """调度器调用的入口函数，负责进程管理和超时控制"""
+    # 设置6小时超时 (6 * 60 * 60 = 21600秒)
+    TIMEOUT_SECONDS = 21600
+    
+    init.logger.info(f"启动涩花爬虫主进程，超时限制: {TIMEOUT_SECONDS}秒")
+    
+    # 创建重试队列
+    retry_queue = multiprocessing.Queue()
+    
+    p = multiprocessing.Process(target=_run_spider_task, args=(retry_queue,), name="SehuaSpiderProcess")
+    p.start()
+    
+    # 等待进程结束或超时
+    p.join(timeout=TIMEOUT_SECONDS)
+    
+    if p.is_alive():
+        init.logger.error(f"涩花爬虫任务执行超过{TIMEOUT_SECONDS}秒，正在强制终止进程...")
+        p.terminate()
+        # 给一点时间让它清理
+        p.join(timeout=5)
+        if p.is_alive():
+             init.logger.error("进程无法终止，尝试kill...")
+             # p.kill() 仅在 Python 3.7+ 可用，这里假设环境支持
+             if hasattr(p, 'kill'):
+                p.kill()
+        init.logger.info("涩花爬虫进程已强制终止")
+    else:
+        if p.exitcode == 0:
+            init.logger.info("涩花爬虫任务正常完成")
+        else:
+            init.logger.error(f"涩花爬虫任务异常退出，退出码: {p.exitcode}")
+            
+    # 检查是否有重试请求
+    try:
+        while not retry_queue.empty():
+            section_name, date = retry_queue.get_nowait()
+            init.logger.info(f"收到子进程的重试请求: [{section_name}] 分区")
+            try:
+                from app.core.scheduler import schedule_sehua_retry
+                schedule_sehua_retry(section_name, date, delay_minutes=30)
+                init.logger.warn(f"⏰ 已在主进程安排 [{section_name}] 分区30分钟后重试")
+            except Exception as e:
+                init.logger.error(f"处理重试请求失败: {e}")
+    except Exception as e:
+        init.logger.error(f"读取重试队列失败: {e}")
         
         
 async def sehua_spider_by_date_async(date):
@@ -447,10 +543,13 @@ async def get_section_update(section_name, date):
                 if page_num == 1:
                     init.logger.error(f"❌ [{section_name}] 分区第1页获取失败，安排延迟重试")
                     try:
-                        # 导入scheduler模块并安排延迟重试
-                        from app.core.scheduler import schedule_sehua_retry
-                        schedule_sehua_retry(section_name, date, delay_minutes=30)
-                        init.logger.warn(f"⏰ 已安排 [{section_name}] 分区30分钟后重试")
+                        # 将重试请求放入队列，由主进程处理
+                        if retry_info_queue:
+                            retry_info_queue.put((section_name, date))
+                            init.logger.warn(f"⏰ 已请求主进程安排 [{section_name}] 分区30分钟后重试")
+                        else:
+                            init.logger.error("❌ 无法安排重试：重试队列未初始化")
+                            
                         return []  # 返回空列表，终止当前爬取
                     except Exception as scheduler_error:
                         init.logger.error(f"安排延迟重试时出错: {str(scheduler_error)}")

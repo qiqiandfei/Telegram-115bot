@@ -3,6 +3,7 @@ import init
 import time
 import os
 import asyncio
+from datetime import datetime
 from app.utils.sqlitelib import *
 from app.utils.message_queue import add_task_to_queue
 from telegram.helpers import escape_markdown
@@ -169,7 +170,10 @@ def sehua_offline():
             add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/tuiche.jpg", final_message)
     
     # 删除垃圾文件
+    current_yearmonth = datetime.now().strftime("%Y%m")
     for path in save_path_list:
+        if init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False):
+            path = f"{path}/{current_yearmonth}"
         init.openapi_115.auto_clean_all(path)
         time.sleep(10)
     
@@ -211,6 +215,15 @@ def sehua_success_proccesser(item, save_path, task, success_list):
         sql_update = "UPDATE sehua_data SET is_download=1 WHERE id=?"
         params_update = (id,)
         sqlite.execute_sql(sql_update, params_update)
+    
+    # 按年月整理
+    if init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False):
+        current_yearmonth = datetime.now().strftime("%Y%m")
+        year_month_path = f"{save_path}/{current_yearmonth}"
+        # 移动已下载的文件到对应目录
+        init.openapi_115.create_dir_recursive(year_month_path)
+        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
+
     
     init.logger.info(f"{title} 离线下载成功！")
     
@@ -328,7 +341,12 @@ def av_daily_offline():
     add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/av_daily_update.png", message)
     
     # 删除垃圾文件
-    init.openapi_115.auto_clean_all(init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更'))
+    if init.bot_config.get('av_daily_update', {}).get('sort_by_year_month', False):
+        current_yearmonth = datetime.now().strftime("%Y%m")
+        save_path = f"{init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')}/{current_yearmonth}"
+    else:
+        save_path = init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')
+    init.openapi_115.auto_clean_all(save_path)
     
     # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
@@ -342,6 +360,14 @@ def av_daily_success_proccesser(item, task):
         sql_update = "UPDATE av_daily_update SET is_download=1 WHERE id=?"
         params_update = (item['id'],)
         sqlite.execute_sql(sql_update, params_update)
+        
+    # 按年月整理
+    if init.bot_config.get('av_daily_update', {}).get('sort_by_year_month', False):
+        current_yearmonth = datetime.now().strftime("%Y%m")
+        year_month_path = f"{save_path}/{current_yearmonth}"
+        # 移动已下载的文件到对应目录
+        init.openapi_115.create_dir_recursive(year_month_path)
+        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
     
     init.logger.info(f"{item['av_number'].upper()} 离线下载完成！")
     

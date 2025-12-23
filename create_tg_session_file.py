@@ -24,8 +24,57 @@ from telethon.errors import SessionPasswordNeededError
 API_ID = 'your_api_id'  # 替换为你的API ID
 API_HASH = 'your_api_hash'  # 替换为你的API Hash
 
+# 代理设置 (如果不需要代理，请保持为 None)
+PROXY = None
+
+# 代理配置 (如果需要代理，请取消下面的注释并填写相应信息！)
+# 注意：使用代理需要安装 PySocks 库: pip install PySocks
+# PROXY = {
+#     'proxy_type': 'socks5',  # 支持 socks5, socks4, http
+#     'addr': '127.0.0.1',     # 代理地址
+#     'port': 7890,            # 代理端口
+#     'username': None,        # 用户名 (如果有)
+#     'password': None,        # 密码 (如果有)
+#     'rdns': True             # 是否在代理端解析域名 (建议 True)
+# }
+
+
 async def create_telegram_session():
-    client = TelegramClient('user_session', API_ID, API_HASH)
+    client_params = {
+        'session': 'user_session',
+        'api_id': API_ID,
+        'api_hash': API_HASH
+    }
+
+    if PROXY:
+        try:
+            import socks
+        except ImportError:
+            print("错误: 使用代理需要安装 PySocks 库。请运行: pip install PySocks")
+            return
+
+        proxy_type_map = {
+            'socks5': socks.SOCKS5,
+            'socks4': socks.SOCKS4,
+            'http': socks.HTTP
+        }
+        
+        p_type = PROXY.get('proxy_type', 'socks5').lower()
+        if p_type not in proxy_type_map:
+            print(f"错误: 不支持的代理类型 '{p_type}'")
+            return
+
+        client_params['proxy'] = (
+            proxy_type_map[p_type],
+            PROXY['addr'],
+            PROXY['port'],
+            PROXY.get('rdns', True),
+            PROXY.get('username'),
+            PROXY.get('password')
+        )
+        print(f"已启用代理: {PROXY['addr']}:{PROXY['port']}")
+
+    client = TelegramClient(**client_params)
     
     print("正在连接Telegram...")
     await client.connect()

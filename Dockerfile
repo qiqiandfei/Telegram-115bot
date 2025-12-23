@@ -1,4 +1,4 @@
-FROM python:3.13.0-slim
+FROM python:3.12-slim
 LABEL authors="qiqiandfei"
 
 # 安装系统依赖和Playwright所需的库

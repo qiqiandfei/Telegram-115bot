@@ -71,7 +71,7 @@ async def download_image(image_url, save_path):
             await page.set_extra_http_headers({
                 'Referer': f'https://{get_base_url()}/'
             })
-            response = await page.goto(image_url, wait_until="domcontentloaded", timeout=30000)
+            response = await page.goto(image_url, wait_until="domcontentloaded", timeout=60000)
             
             if response and response.status == 200:
                 # 检查Content-Type是否为图片
@@ -341,7 +341,7 @@ async def section_spider(section_name, date):
                     await age_check(page)
                     
                     # 等待页面完全加载
-                    await page.wait_for_load_state("networkidle", timeout=30000)
+                    await page.wait_for_load_state("networkidle", timeout=60000)
                     
                     html = await page.content()
                     if html and len(html) > 1000:  # 确保获取到完整页面
@@ -507,7 +507,7 @@ async def get_section_update(section_name, date):
                     await age_check(page)
                     
                     # 等待页面完全加载
-                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
+                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"], timeout=60000)
 
                     # 获取页面 HTML
                     html = await page.content()
@@ -618,7 +618,7 @@ def parse_section_page(html_content, date, page_num):
 async def age_check(page):
     try:
         # 等待页面基本加载
-        await browser.wait_for_page_loaded(timeout=15000)
+        await browser.wait_for_page_loaded(timeout=30000)
         
         content = await page.content()
         init.logger.debug(f"  当前页面URL: {page.url}")
@@ -627,7 +627,7 @@ async def age_check(page):
         if "满18岁，请点此进入" in content:
             init.logger.info("  检测到年龄验证页面，正在点击进入...")
             try:
-                await page.click("text=满18岁，请点此进入", timeout=10000)
+                await page.click("text=满18岁，请点此进入", timeout=30000)
                 
                 # 等待页面跳转并完全加载
                 init.logger.debug("  等待页面跳转和加载...")
@@ -644,7 +644,7 @@ async def age_check(page):
                 init.logger.warn(f"  点击年龄验证按钮失败: {str(click_error)}")
                 # 尝试其他方式
                 try:
-                    await page.get_by_text("满18岁，请点此进入").click(timeout=10000)
+                    await page.get_by_text("满18岁，请点此进入").click(timeout=30000)
                     await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
                     init.logger.debug("  使用备用方式通过年龄验证")
                 except Exception as backup_error:

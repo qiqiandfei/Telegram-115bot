@@ -231,7 +231,7 @@ def download_from_link(download_url, movie_name, save_path):
     except Exception as e:
         init.logger.error(f"💀下载遇到错误: {str(e)}")
         add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png",
-                            message=f"❌ 下载任务执行出错: {str(e)}")
+                            message=f"❌ 下载任务执行出错: {escape_markdown(str(e), version=2)}")
         return False
     finally:
         # 清除云端任务，避免重复下载

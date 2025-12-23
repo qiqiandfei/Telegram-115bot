@@ -297,7 +297,7 @@ def download_task(av_result, av_number, save_path, user_id):
     except Exception as e:
         init.logger.warn(f"💀下载遇到错误: {str(e)}")
         add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png",
-                            message=f"❌ 下载任务执行出错: {str(e)}")
+                            message=f"❌ 下载任务执行出错: {escape_markdown(str(e), version=2)}")
     finally:
         # 清空离线任务
         init.openapi_115.clear_cloud_task()

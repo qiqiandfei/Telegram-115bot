@@ -7,7 +7,6 @@ import time
 import re
 from app.utils.message_queue import add_task_to_queue
 import urllib3
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from offline_task_retry import av_daily_offline
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -149,18 +148,36 @@ def save_av_daily_update2db(results):
                 init.logger.warn(f"跳过无效的AV记录，番号: {av_number}, 标题: {title}, 发布链接: {pub_url}")
                 continue
             
-            # 检查是否已存在相同的记录
-            sql_check = "SELECT COUNT(*) FROM av_daily_update WHERE av_number=? AND publish_date=?"
-            params_check = (av_number, publish_date)
-            count = sqlite.query_one(sql_check, params_check)
-            
-            if count is not None and count > 0:
-                init.logger.info(f"AV {av_number} 已存在，跳过保存。")
-                continue
-            
             from app.core.sehua_spider import check_magnet
             if check_magnet(magnet) is False:
                 init.logger.warn(f"[{magnet}]磁力链接格式不正确，跳过入库!")
+                continue
+            
+            # 检查是否已存在相同的记录
+            from app.core.sehua_spider import get_magnet_hash
+            magnet_hash = get_magnet_hash(magnet)
+            if magnet_hash:
+                # 如果能提取到hash，使用模糊匹配查询
+                sql_check = "select count(*) from av_daily_update where magnet LIKE ?"
+                params_check = (f'%{magnet_hash}%', )
+            else:
+                # 提取不到hash，回退到完全匹配
+                sql_check = "select count(*) from av_daily_update where magnet = ?"
+                params_check = (magnet, )
+
+            count = sqlite.query_one(sql_check, params_check)
+            if count > 0:
+                init.logger.info(f"[{title}]检测到相同磁力链接(Hash: {magnet_hash})已存在，跳过入库！")
+                continue  # 已存在，跳过
+            
+            # 判断数据完整性
+            if not av_number or \
+                not publish_date or \
+                not title or \
+                not post_url or \
+                not magnet or \
+                not pub_url:
+                init.logger.warn(f"AV番号: {av_number}, 标题: {title} 数据不完整，跳过入库！")
                 continue
             
             # 插入新记录
@@ -205,6 +222,20 @@ def av_daily_update():
     else:
         init.logger.info("没有找到最新的AV更新。")  
         
+
+def repair_leak():
+    if not init.bot_config.get('av_daily_update', {}).get('enable', False):
+        return
+    date = datetime.datetime.now().strftime("%Y-%m-%d")
+    need_update = False
+    with SqlLiteLib() as sqlite:
+        sql = "select COUNT(*) from av_daily_update where publish_date=?"
+        count = sqlite.query_one(sql, (date,))
+        if count is not None and count == 0:
+            need_update = True
+    if need_update:
+        av_daily_update()
+        
         
 def crawl_javbee_by_date(date):
     init.logger.info(f"开始获取{date}的AV更新...")
@@ -218,20 +249,6 @@ def crawl_javbee_by_date(date):
     else:
         init.logger.info(f"{date}没有找到AV更新。")  
     init.CRAWL_JAV_STATUS = 0
-    
-    
-def repair_leak():
-    if not init.bot_config.get('av_daily_update', {}).get('enable', False):
-        return
-    date = datetime.datetime.now().strftime("%Y-%m-%d")
-    need_update = False
-    with SqlLiteLib() as sqlite:
-        sql = "select COUNT(*) from av_daily_update where publish_date=?"
-        count = sqlite.query_one(sql, (date,))
-        if count is not None and count == 0:
-            need_update = True
-    if need_update:
-        av_daily_update()
         
         
 def get_minimal_magnet(magnet_link):

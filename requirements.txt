@@ -6,8 +6,8 @@ python-telegram-bot==22.3
 PyYAML==6.0.2
 qrcode==8.2
 Requests==2.32.5
-Telethon==1.40.0
+telethon[cryptg]==1.40.0
 urllib3==2.5.0
 Pillow==11.2.1
-bs4==0.0.2
 aria2p==0.12.1
+PySocks==1.7.1

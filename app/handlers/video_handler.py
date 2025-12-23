@@ -11,6 +11,7 @@ from pathlib import Path
 import hashlib
 from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
+from app.utils.fast_telethon import download_file_parallel
 
 filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 # 过滤 Telethon 的异步会话实验性功能警告
@@ -27,7 +28,8 @@ async def save_video2115(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     if not init.tg_user_client:
-        await update.message.reply_text("⚠️ 如需使用此功能，请先配置[bot_name],[tg_app_id]和[tg_app_hash]！")
+        message = "⚠️ Telegram 用户客户端初始化失败，配置方法请参考\nhttps://github.com/qiqiandfei/Telegram-115bot/wiki/VideoDownload"
+        await update.message.reply_text(message)
         return ConversationHandler.END
 
     # 检查和建立 Telegram 用户客户端连接
@@ -178,10 +180,13 @@ async def select_sub_category_video(update: Update, context: ContextTypes.DEFAUL
                     pass
         
         # 开始下载并显示进度
-        saved_path = await init.tg_user_client.download_media(
+        # 使用多线程分片下载
+        saved_path = await download_file_parallel(
+            init.tg_user_client,
             target_msg, 
-            file=file_path,
-            progress_callback=progress_callback
+            file_path=file_path,
+            progress_callback=progress_callback,
+            threads=8  # 使用8线程加速
         )
         
         if not saved_path:

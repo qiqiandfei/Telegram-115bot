@@ -249,8 +249,6 @@ class OpenAPI_115:
             return response['data']
         else:
             init.logger.warn(f"获取文件信息失败: {response}")
-            if response['code'] == 40140125:
-                return response
             return None
         
     @handle_token_expiry
@@ -265,8 +263,6 @@ class OpenAPI_115:
             return response['data']
         else:
             init.logger.warn(f"获取文件信息失败: {response}")
-            if response['code'] == 40140125:
-                return response
             return None
     
     @handle_token_expiry
@@ -295,8 +291,14 @@ class OpenAPI_115:
     def offline_download_specify_path(self, download_url, save_path):
         url = f"{self.base_url}/open/offline/add_task_urls"
         file_info = self.get_file_info(save_path)
+        
         if not file_info:
             self.create_dir_recursive(save_path)
+            # 创建目录后重新获取信息
+            file_info = self.get_file_info(save_path)
+            
+            if not file_info:
+                raise Exception(f"无法创建或获取保存路径: {save_path}")
         
         data = {
             "urls": download_url,

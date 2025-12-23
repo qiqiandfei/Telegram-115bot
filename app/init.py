@@ -181,6 +181,7 @@ def initialize_tg_usr_client():
             
         if not bot_config.get('tg_api_id') or not bot_config.get('tg_api_hash') or not bot_config.get('bot_name'):
             logger.warn("缺少必要的Telegram API配置 (tg_api_id & tg_api_hash & bot_name), 无法使用视频上传功能。")
+            logger.warn("配置方法请参考：https://github.com/qiqiandfei/Telegram-115bot/wiki/VideoDownload")
             tg_user_client = None
             return False
             
@@ -190,16 +191,46 @@ def initialize_tg_usr_client():
         # 检查并验证session文件
         if not create_tg_session_file():
             logger.warn("Session文件不可用，视频上传功能将被禁用。")
+            logger.warn("配置方法请参考：https://github.com/qiqiandfei/Telegram-115bot/wiki/VideoDownload")
             tg_user_client = None
             return False
         
+        client_params = {
+            'session': TG_SESSION_FILE,
+            'api_id': api_id,
+            'api_hash': api_hash
+        }
+        PROXY = bot_config.get('tg_proxy', None)
         # 创建客户端实例
-        tg_user_client = TelegramClient(TG_SESSION_FILE, api_id, api_hash)
+        if PROXY:
+            import socks
+            proxy_type_map = {
+                'socks5': socks.SOCKS5,
+                'socks4': socks.SOCKS4,
+                'http': socks.HTTP
+            }
+            
+            p_type = PROXY.get('proxy_type', 'socks5').lower()
+            if p_type not in proxy_type_map:
+                logger.error(f"错误: 不支持的代理类型 '{p_type}'")
+                return
+
+            client_params['proxy'] = (
+                proxy_type_map[p_type],
+                PROXY['addr'],
+                PROXY['port'],
+                PROXY.get('rdns', True),
+                PROXY.get('username'),
+                PROXY.get('password')
+            )
+            logger.info(f"Telegram 已启用代理: {PROXY['addr']}:{PROXY['port']}")
+        tg_user_client = TelegramClient(**client_params)
         logger.info(f"Telegram User Client 初始化成功，session路径: {TG_SESSION_FILE}")
         return True
         
     except Exception as e:
-        logger.error(f"Telegram User Client initialization failed: {e}")
+        logger.warn(f"Telegram User Client 初始化失败: {e}")
+        logger.warn("配置方法请参考：https://github.com/qiqiandfei/Telegram-115bot/wiki/VideoDownload")
         tg_user_client = None
         return False
     

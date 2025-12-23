@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, ConversationHandler, \
     MessageHandler, filters, CallbackQueryHandler
 from telegram.error import TelegramError
+from telegram.helpers import escape_markdown
 import init
 import re
 import time
@@ -352,7 +353,7 @@ def download_task(link, selected_path, user_id):
                 [InlineKeyboardButton("取消", callback_data=f"cancel_{task_id}")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            message = f"✅ 电影\\[`{resource_name}`\\]离线下载完成\\!\n\n便于削刮，请为资源指定TMDB的标准名称！"
+            message = f"✅ \\[`{resource_name}`\\]离线下载完成\\!\n\n如需削刮，请为资源指定TMDB的标准名称！"
             
             add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
             
@@ -390,7 +391,7 @@ def download_task(link, selected_path, user_id):
     except Exception as e:
         init.logger.error(f"💀下载遇到错误: {str(e)}")
         add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png",
-                            message=f"❌ 下载任务执行出错: {str(e)}")
+                            message=f"❌ 下载任务执行出错: {escape_markdown(str(e), version=2)}")
     finally:
         # 清除云端任务，避免重复下载
         init.openapi_115.clear_cloud_task()

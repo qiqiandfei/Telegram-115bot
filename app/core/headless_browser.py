@@ -107,7 +107,7 @@ class HeadlessBrowser:
             return None
         return self.page
     
-    async def wait_for_page_loaded(self, expected_elements=None, timeout=30000):
+    async def wait_for_page_loaded(self, expected_elements=None, timeout=60000):
         """等待页面完全加载，包括动态内容"""
         try:
             # 基本等待
@@ -118,7 +118,7 @@ class HeadlessBrowser:
             if expected_elements:
                 for element in expected_elements:
                     try:
-                        await self.page.wait_for_selector(element, timeout=10000)
+                        await self.page.wait_for_selector(element, timeout=30000)
                     except:
                         pass  # 某些元素可能不存在，继续
             

@@ -24,6 +24,21 @@ bot_name: "@your_bot_name"
 tg_api_id: your_tg_api_id
 tg_api_hash: your_tg_api_hash
 
+# 如果tg总是连不上，请为Telegram单独设置代理
+# tg_proxy:
+#  # 支持 socks5, socks4, http
+#  proxy_type: socks5
+#  # 代理地址
+#  addr: 127.0.0.1
+#  # 代理端口
+#  port: 7890
+#  # 用户名 (如果有)
+#  username: 
+#  # 密码 (如果有)
+#  password: 
+#  # 是否在代理端解析域名 (建议 True)
+#  rdns: true
+
 ############################################115开放平台##################################
 # 115_app_id 
 # 申请地址https://open.115.com/

@@ -159,6 +159,10 @@ class OpenAPI_115:
                     init.logger.info("二维码已失效...")
                     break
                 else:
+                    if res['data'].get('status', None) is None:
+                        init.logger.info("等待扫码...")
+                        time.sleep(2)
+                        continue
                     # 1.扫码成功，等待确认
                     if res['data']['status'] == 1:
                         time.sleep(1)

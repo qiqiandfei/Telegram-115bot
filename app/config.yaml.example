@@ -153,7 +153,7 @@ sub_condition:
   dolby_vision: false
   # 分辨率优先级
   resolution_priority:
-    - 2106
+    - 2160
     - 1080
 ##########################################Aria2#######################################
 # 设置Aria2可选择将离线的影片推送到Aria2
@@ -170,5 +170,5 @@ aria2:
   # Aria2 密钥
   rpc_secret: your_aria2_rpc_secret
   # 下载目录 (Aari2容器中的下载位置)
-  dowload_path: "/Downloads"
+  download_path: "/Downloads"
 

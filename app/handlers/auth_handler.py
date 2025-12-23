@@ -3,6 +3,7 @@
 from telegram import Update
 from telegram.ext import CommandHandler, ConversationHandler, ContextTypes
 import init
+import os
 
 
 # 定义对话的步骤
@@ -13,6 +14,8 @@ async def auth_pkce_115(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usr_id = update.message.from_user.id
     if init.check_user(usr_id):
         if check_115_app_id():
+            if os.path.exists(init.TOKEN_FILE):
+                os.remove(init.TOKEN_FILE)
             init.openapi_115.auth_pkce(usr_id, init.bot_config['115_app_id'])
             if init.openapi_115.access_token and init.openapi_115.refresh_token:
                 await update.message.reply_text("✅ 授权成功！")
@@ -27,7 +30,7 @@ async def auth_pkce_115(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def check_115_app_id():
-    api_key = init.bot_config.get('115_app_id')
+    api_key = str(init.bot_config.get('115_app_id'))
     if api_key is None or api_key.strip() == "" or api_key.strip().lower() == "your_115_app_id":
         init.logger.error("115 Open APPID未配置!")
         return False

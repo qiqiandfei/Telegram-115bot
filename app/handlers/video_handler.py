@@ -270,24 +270,78 @@ async def quit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def detect_video_format(file_path):
-    # 定义魔数字典，存储视频格式及其对应魔数
-    video_signatures = {
-        "mp4": [b"\x00\x00\x00\x18\x66\x74\x79\x70", b"\x00\x00\x00\x20\x66\x74\x79\x70"],
-        "avi": [b"\x52\x49\x46\x46", b"\x41\x56\x49\x20"],
-        "mkv": [b"\x1A\x45\xDF\xA3"],
-        "flv": [b"\x46\x4C\x56"],
-        "mov": [b"\x00\x00\x00\x14\x66\x74\x79\x70\x71\x74\x20\x20", b"\x6D\x6F\x6F\x76"],
-        "wmv": [b"\x30\x26\xB2\x75\x8E\x66\xCF\x11"],
-        "webm": [b"\x1A\x45\xDF\xA3"],
-    }
+    """
+    通过读取文件头识别视频格式。
+    支持格式：mp4, mkv, avi, mov, wmv, flv, webm, ts, mpg, m4v, 3gp, ogg
+    """
+    try:
+        with open(file_path, "rb") as f:
+            # 读取足够长的头部字节，260字节通常足够覆盖大多数格式的签名
+            header = f.read(260)
+    except Exception:
+        return "unknown"
 
-    with open(file_path, "rb") as f:
-        file_header = f.read(12)  # 读取前12个字节以匹配文件签名
+    if len(header) < 4:
+        return "unknown"
 
-    # 识别文件格式
-    for format_name, signatures in video_signatures.items():
-        if any(file_header.startswith(signature) for signature in signatures):
-            return format_name
+    # 1. ISO Base Media File Format (MP4, MOV, 3GP, M4V)
+    # 特征：Offset 4 处是 'ftyp' (0x66747970)
+    if len(header) >= 12 and header[4:8] == b'ftyp':
+        major_brand = header[8:12]
+        if major_brand == b'qt  ':
+            return 'mov'
+        if major_brand == b'M4V ':
+            return 'm4v'
+        if major_brand.startswith(b'3g'):
+            return '3gp'
+        # 默认为 mp4 (isom, mp42, avc1, etc.)
+        return 'mp4'
+    
+    # 2. Matroska / WebM
+    # 特征：EBML Header 0x1A45DFA3
+    if header.startswith(b'\x1A\x45\xDF\xA3'):
+        # 尝试在头部查找 DocType
+        # EBML 结构比较复杂，这里做一个简单的字符串搜索作为启发式判断
+        # DocType 通常在头部的前几十个字节内
+        if b'webm' in header[:64]:
+            return 'webm'
+        return 'mkv'
+
+    # 3. AVI (RIFF)
+    # 特征：'RIFF' (4 bytes) + size (4 bytes) + 'AVI ' (4 bytes)
+    if header.startswith(b'RIFF') and len(header) >= 12 and header[8:12] == b'AVI ':
+        return 'avi'
+
+    # 4. WMV / ASF
+    # 特征：GUID 30 26 B2 75 8E 66 CF 11
+    if header.startswith(b'\x30\x26\xB2\x75\x8E\x66\xCF\x11'):
+        return 'wmv'
+
+    # 5. FLV
+    # 特征：'FLV' (0x464C56)
+    if header.startswith(b'FLV'):
+        return 'flv'
+
+    # 6. MPEG-TS
+    # 特征：Sync byte 0x47，通常包长 188 字节
+    # 检查第一个字节和第189个字节（如果文件足够大）
+    if header[0] == 0x47:
+        if len(header) >= 189 and header[188] == 0x47:
+            return 'ts'
+        # 如果文件很小，或者只是片段，可能只有一个包
+        elif len(header) == 188:
+            return 'ts'
+
+    # 7. MPEG-PS (VOB, MPG)
+    # 特征：Pack Start Code 0x000001BA
+    if header.startswith(b'\x00\x00\x01\xBA'):
+        return 'mpg'
+        
+    # 8. OGG
+    # 特征：'OggS'
+    if header.startswith(b'OggS'):
+        return 'ogg'
+
     return "unknown"
 
 def file_sha1(file_path):

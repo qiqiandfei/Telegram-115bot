@@ -185,17 +185,36 @@ class OpenAPI_115:
                             break
               
                         
+    def _load_token_from_file(self):
+        if os.path.exists(init.TOKEN_FILE):
+            try:
+                with open(init.TOKEN_FILE, 'r', encoding='utf-8') as f:
+                    tokens = json.load(f)
+                    return tokens.get('access_token', ''), tokens.get('refresh_token', '')
+            except Exception as e:
+                init.logger.warn(f"读取Token文件失败: {e}")
+        return "", ""
+
     def refresh_access_token(self):
+        # 1. 尝试从文件加载最新Token
+        file_access_token, file_refresh_token = self._load_token_from_file()
+        
+        # 如果文件中的refresh_token与内存中的不一致，说明文件已被其他进程/线程更新
+        if file_refresh_token and file_refresh_token != self.refresh_token:
+            init.logger.info("发现本地Token文件已更新，加载新Token...")
+            self.access_token = file_access_token
+            self.refresh_token = file_refresh_token
+            return
+
         if not self.refresh_token:
-            if not os.path.exists(init.TOKEN_FILE):
+            # 如果内存无token，且文件也无token（或文件不存在）
+            if not file_refresh_token:
                 init.logger.warn("请先进行授权，获取refresh_token！")
                 add_task_to_queue(init.bot_config['allowed_user'], "/app/images/male023.png", "请先进行授权，获取refresh_token！")
                 return
-            with open(init.TOKEN_FILE, 'r', encoding='utf-8') as f:
-                tokens = json.load(f)
-                # 从文件中读取access_token和refresh_token
-                self.access_token = tokens.get('access_token', '')
-                self.refresh_token = tokens.get('refresh_token', '')
+            # 如果内存无token但文件有
+            self.access_token = file_access_token
+            self.refresh_token = file_refresh_token
         
         header = {
             "Content-Type": "application/x-www-form-urlencoded"
@@ -205,16 +224,27 @@ class OpenAPI_115:
         data = {
             "refresh_token": self.refresh_token
         }
-        response = requests.post(url, headers=header, data=data)
-        res = response.json()
-        if response.status_code == 200 and 'data' in res:
-            self.access_token = res['data']['access_token']
-            self.refresh_token = res['data']['refresh_token']
-            self.save_token_to_file(self.access_token, self.refresh_token, init.TOKEN_FILE)
-            init.logger.info("Access token 更新成功.")
+        
+        try:
+            response = requests.post(url, headers=header, data=data)
+            res = response.json()
+        except Exception as e:
+            init.logger.warn(f"刷新Token请求异常: {e}")
+            raise
+
+        if response.status_code == 200 and isinstance(res, dict) and res.get('state'):
+            data = res.get('data')
+            if isinstance(data, dict) and data.get('access_token'):
+                self.access_token = data['access_token']
+                self.refresh_token = data['refresh_token']
+                self.save_token_to_file(self.access_token, self.refresh_token, init.TOKEN_FILE)
+                init.logger.info("Access token 更新成功.")
+            else:
+                init.logger.warn(f"Access token 更新失败: 响应数据异常 - {res}")
+                raise Exception(f"Failed to refresh access token: invalid data format")
         else:
-            init.logger.warn("Access token 更新失败!")
-            raise Exception(f"Failed to refresh access token: {response.text}")
+            init.logger.warn(f"Access token 更新失败: {res}")
+            raise Exception(f"Failed to refresh access token: {res.get('message', 'unknown error')}")
         
 
     def _get_headers(self):

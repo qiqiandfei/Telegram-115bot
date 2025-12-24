@@ -172,3 +172,12 @@ aria2:
   # 下载目录 (Aari2容器中的下载位置)
   download_path: "/Downloads"
 
+##########################################AI#######################################
+# AI支持
+ai:
+  # 请求地址
+  api_url: https://api.siliconflow.cn/v1/messages
+  # api_key
+  api_key: sk-cwwleebtphkxfpncvdeirutgbbmbquemdbgeisoapndcoryu
+  # 模型
+  model: deepseek-ai/DeepSeek-V3.2-Exp

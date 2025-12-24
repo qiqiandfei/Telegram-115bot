@@ -410,11 +410,11 @@ def create_offline_url(res_list):
     offline_tasks = ""
     offline_tasks_list = []
     index = 0
-    quota_info = init.openapi_115.get_quota_info()
-    left_offline_quota = quota_info['count'] - quota_info['used']
-    # 离线配额不足
-    if left_offline_quota < len(res_list):
-        return None
+    # quota_info = init.openapi_115.get_quota_info()
+    # left_offline_quota = quota_info['count'] - quota_info['used']
+    # # 离线配额不足
+    # if left_offline_quota < len(res_list):
+    #     return None
     for item in res_list:
         if not item['magnet']:
             init.logger.warn(f"跳过无效的离线任务，标题: {item['title']}，下载链接为空")
@@ -434,12 +434,12 @@ def create_offline_group_by_save_path(res_list):
     """
     根据保存路径分组离线任务，每个路径下的任务不超过100个
     """
-    quota_info = init.openapi_115.get_quota_info()
-    left_offline_quota = quota_info['count'] - quota_info['used']
+    # quota_info = init.openapi_115.get_quota_info()
+    # left_offline_quota = quota_info['count'] - quota_info['used']
     
-    # 离线配额不足
-    if left_offline_quota < len(res_list):
-        return None
+    # # 离线配额不足
+    # if left_offline_quota < len(res_list):
+    #     return None
     
     # 按保存路径分组
     path_groups = {}

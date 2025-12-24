@@ -342,13 +342,13 @@ def batch_download_task(magnet_links, save_path, user_id):
     
     init.logger.info(f"发现 {len(valid_links)} 个有效链接，准备添加离线任务...")
     # 配额检查
-    quota_info = init.openapi_115.get_quota_info()
-    left_offline_quota = quota_info['count'] - quota_info['used']
-    # 离线配额不足
-    if left_offline_quota < len(valid_links):
-        init.logger.warn("❌ 离线配额不足，无法添加离线任务！")
-        add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", "❌ 离线配额不足，无法添加离线任务！")
-        return
+    # quota_info = init.openapi_115.get_quota_info()
+    # left_offline_quota = quota_info['count'] - quota_info['used']
+    # # 离线配额不足
+    # if left_offline_quota < len(valid_links):
+    #     init.logger.warn("❌ 离线配额不足，无法添加离线任务！")
+    #     add_task_to_queue(user_id, f"{init.IMAGE_PATH}/male023.png", "❌ 离线配额不足，无法添加离线任务！")
+    #     return
     
     # 分割磁力，避免数量太多超过接口限制
     dl_list = split_list_compact(valid_links)

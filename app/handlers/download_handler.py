@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from app.utils.cover_capture import get_movie_cover
 from app.utils.message_queue import add_task_to_queue
+from app.utils.ai import get_movie_tmdb_name_with_ai
 import requests
 from enum import Enum
 from warnings import filterwarnings
@@ -353,7 +354,11 @@ def download_task(link, selected_path, user_id):
                 [InlineKeyboardButton("取消", callback_data=f"cancel_{task_id}")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            message = f"✅ \\[`{resource_name}`\\]离线下载完成\\!\n\n如需削刮，请为资源指定TMDB的标准名称！"
+            movie_name = get_movie_tmdb_name_with_ai(resource_name)  # 预调用AI接口，提前准备
+            if movie_name:
+                message = f"✅ \\[`{resource_name}`\\]离线下载完成\\!\n\n根据AI识别，推荐的TMDB名称是：`{movie_name}`\n\n请确认！"
+            else:
+                message = f"✅ \\[`{resource_name}`\\]离线下载完成\\!\n\n如需削刮，请为资源指定TMDB的标准名称！"
             
             add_task_to_queue(user_id, None, message=message, keyboard=reply_markup)
             

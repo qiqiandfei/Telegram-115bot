@@ -1,50 +1,38 @@
 FROM python:3.12-slim
 LABEL authors="qiqiandfei"
 
-# 安装系统依赖和Playwright所需的库
+# Install system dependencies and Google Chrome
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    # Playwright Chromium依赖（最小化安装）
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libxss1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libgtk-3-0 \
-    # 字体支持（可选，用于渲染中文等）
+    wget \
+    gnupg \
+    unzip \
+    curl \
+    xvfb \
+    libxi6 \
+    # Fonts for Chinese support
     fonts-liberation \
-    # 清理缓存
+    fonts-noto-cjk \
+    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
+# Set working directory
 WORKDIR /app
 
-# 设置Playwright环境变量
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
-
-# 复制requirements.txt并安装Python依赖
+# Copy requirements and install dependencies
 COPY requirements.txt /app/
 RUN pip install --upgrade pip --no-cache-dir && \
-    pip install -r requirements.txt --no-cache-dir
+    pip install -r requirements.txt --no-cache-dir && \
+    seleniumbase install chromedriver
 
-# 安装Playwright浏览器（只安装Chromium，并清理缓存）
-RUN playwright install chromium --with-deps && \
-    # 清理Playwright缓存
-    find /ms-playwright -name "*.log" -delete && \
-    find /ms-playwright -name "*.tmp" -delete
-
-# 复制app下所有文件到/app
+# Copy app files
 ADD ./app .
 
-# 设置Python模块搜索路径，包含所有需要的目录
+# Set PYTHONPATH
 ENV PYTHONPATH="/app:/app/utils:/app/core:/app/handlers:/app/.."
 
+# Start command
 CMD ["python", "115bot.py"]
 

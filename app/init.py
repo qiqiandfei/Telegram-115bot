@@ -51,6 +51,7 @@ aria2_client = None
 # 爬取状态
 CRAWL_SEHUA_STATUS = 0  # 涩花爬取状态
 CRAWL_JAV_STATUS = 0    # javbee爬取状态
+RSS_T66Y_STATUS = 0  # t66y订阅状态
 
 
 # yaml配置文件
@@ -106,6 +107,10 @@ def create_logger():
     log_level = LOG_LEVEL_MAP.get(log_level, logging.INFO)
     # 全局日志实例，输出到命令行和文件
     logger = Logger(level=log_level, debug_model=debug_mode)
+    
+    # 屏蔽 telethon 的 INFO 日志，避免刷屏
+    logging.getLogger('telethon').setLevel(logging.WARNING)
+    
     logger.info("Logger init success!")
 
 
@@ -407,6 +412,24 @@ def init_db():
             publish_date DATETIME, -- 发布时间
             pub_url TEXT, -- 资源链接
             image_path TEXT, -- 图片本地路径 
+            save_path TEXT, -- 保存路径
+            is_download TINYINT DEFAULT 0, -- 是否下载, 0或1, 默认0
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间，默认当前时间
+        );
+        '''
+        sqlite.execute_sql(create_table_query)
+        logger.info("init DataBase success.")
+        
+        create_table_query = '''
+        CREATE TABLE IF NOT EXISTS t66y (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section_name TEXT, -- 版块名称
+            movie_info TEXT, -- 影片信息
+            title TEXT, -- 标题
+            magnet TEXT, -- 磁力链接
+            poster_url TEXT, -- 封面url
+            publish_date DATE, -- 发布日期
+            pub_url TEXT, -- 资源链接s
             save_path TEXT, -- 保存路径
             is_download TINYINT DEFAULT 0, -- 是否下载, 0或1, 默认0
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间，默认当前时间

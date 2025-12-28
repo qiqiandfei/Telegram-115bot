@@ -1,9 +1,9 @@
 alibabacloud_oss_v2==1.1.2
 APScheduler==3.11.0
-beautifulsoup4==4.13.5
-playwright==1.55.0
+beautifulsoup4>=4.13.5
+seleniumbase==4.45.6
 python-telegram-bot==22.3
-PyYAML==6.0.2
+PyYAML>=6.0.2
 qrcode==8.2
 Requests==2.32.5
 telethon[cryptg]==1.40.0

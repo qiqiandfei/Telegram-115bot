@@ -59,6 +59,8 @@ def offline_task_retry():
     sehua_offline()
     init.logger.info("开始AV日更离线任务...")
     av_daily_offline()
+    init.logger.info("开始t66y离线任务...")
+    t66y_offline()
 
 
 def sehua_offline():
@@ -498,6 +500,149 @@ def push2aria2(save_path, user_id, cover_image, message):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     add_task_to_queue(user_id, cover_image, message, reply_markup)
+    
+    
+def t66y_offline():
+    save_path_list= []
+    check_results = []
+    
+    # 查询所有未下载的任务
+    sql = "select * from t66y WHERE is_download=0 order by publish_date desc"
+    with SqlLiteLib() as sqlite:
+        results = sqlite.query_all(sql)
+        if not results:
+            init.logger.info("t66y没有找到需要离线任务~")
+            return
+        
+        init.logger.info(f"t66y找到 {len(results)} 个需要离线的任务")
+        check_results.extend(results)
+        
+        # 分批处理
+        offline_groups = create_offline_group_by_save_path(results)
+        if offline_groups:
+            for save_path, batches in offline_groups.items():
+                if save_path not in save_path_list:
+                    save_path_list.append(save_path)
+                for batch_tasks in batches:
+                    task_count = len(batch_tasks.split('\n'))
+                    offline2115(batch_tasks, task_count, save_path)
+        else:
+            init.logger.warn("t66y离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png", "t66y离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+            return
+
+    # 等待离线完成
+    time.sleep(300)
+    
+    # 统计各板块成功数
+    section_stats = {} # {section_name: {'total': 0, 'success': 0}}
+    
+    # 初始化统计
+    for item in check_results:
+        section_name = item.get('section_name', '未知板块')
+        if section_name not in section_stats:
+            section_stats[section_name] = {'total': 0, 'success': 0}
+        section_stats[section_name]['total'] += 1
+
+    # 获取离线任务状态
+    offline_task_status = init.openapi_115.get_offline_tasks()
+    
+    for item in check_results:
+        magnet = item['magnet']
+        save_path = item['save_path']
+        section_name = item.get('section_name', '未知板块')
+        
+        for task in offline_task_status:
+            if task['url'] == magnet:
+                if task['status'] == 2 and task['percentDone'] == 100:
+                    t66y_success_proccesser(item, save_path, task)
+                    section_stats[section_name]['success'] += 1
+                else:
+                    init.logger.warn(f"{item['title']} 离线下载失败或未完成。")
+                    # 删除离线失败的文件
+                    init.openapi_115.del_offline_task(task['info_hash'])
+                break
+    
+    # 等待消息队列处理完成
+    wait_for_message_queue_completion("t66y")
+    
+    # 生成汇总消息
+    messages = []
+    total_success = 0
+    for section_name, stats in section_stats.items():
+        if stats['total'] > 0:
+            message_line = escape_markdown(f"[{section_name}]离线任务完成情况: {stats['success']}/{stats['total']}", version=2)
+            messages.append(message_line)
+            init.logger.info(f"[{section_name}]离线任务完成情况: {stats['success']}/{stats['total']}")
+            total_success += stats['success']
+            
+    if messages:
+        final_message = "**t66y离线任务完成情况:**\n" + "\n".join(messages)
+        if total_success > 0:
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
+        else:
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/tuiche.jpg", final_message)
+            
+    # 删除垃圾文件
+    current_yearmonth = datetime.now().strftime("%Y%m")
+    for path in save_path_list:
+        if init.bot_config.get('t66y_spider', {}).get('sort_by_year_month', False):
+            path = f"{path}/{current_yearmonth}"
+        init.openapi_115.auto_clean_all(path, clean_empty_dir=True)
+        time.sleep(10)
+        
+    # 清空已完成的离线任务
+    init.openapi_115.clear_cloud_task()
+
+
+def t66y_success_proccesser(item, save_path, task):
+    id = item['id']
+    title = item['title']
+    movie_info = item['movie_info']
+    poster_url = item['poster_url']
+    magnet = item['magnet']
+    pub_url = item['pub_url']
+    pub_date = item['publish_date']
+    
+    # 更新数据库状态
+    with SqlLiteLib() as sqlite:
+        sql_update = "UPDATE t66y SET is_download=1 WHERE id=?"
+        params_update = (id,)
+        sqlite.execute_sql(sql_update, params_update)
+        
+    # 按年月整理
+    if init.bot_config.get('rsshub', {}).get('t66y', {}).get('sort_by_year_month', False):
+        current_yearmonth = datetime.now().strftime("%Y%m")
+        year_month_path = f"{save_path}/{current_yearmonth}"
+        # 移动已下载的文件到对应目录
+        init.openapi_115.create_dir_recursive(year_month_path)
+        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
+        
+    init.logger.info(f"{title} 离线下载成功！")
+    
+    # 发送通知
+    if init.bot_config.get('rsshub', {}).get('t66y', {}).get('notify_me', False):
+        # 直接使用 movie_info
+        message = movie_info
+        
+        # 如果 movie_info 为空，构建一个简单的消息
+        if not message:
+            msg_title = escape_markdown(title, version=2)
+            msg_magnet = escape_markdown(magnet, version=2)
+            message = f"""
+                        **t66y订阅通知**
+
+                        **标题:**   `{msg_title}`
+                        ****发布日期:** {pub_date}
+                        **下载链接:** `{msg_magnet}`
+                        **发布链接:** [点击查看详情]({pub_url})
+                        """
+            message = escape_markdown(message, version=2)
+        
+        if not init.aria2_client:
+            add_task_to_queue(init.bot_config['allowed_user'], poster_url, message)
+        else:
+            push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], poster_url, message)
 
 
 if __name__ == '__main__':

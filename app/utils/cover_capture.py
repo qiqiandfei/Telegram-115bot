@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import init
 import asyncio
 import time
-from app.core.headless_browser import *
+from app.core.selenium_browser import SeleniumBrowser
 
 
 def get_movie_cover(query, page=1):
@@ -134,15 +134,15 @@ def get_av_cover(query):
     
     async def _async_get_av_cover():
         nonlocal title, cover_url
-        browser = HeadlessBrowser("https://avmoo.website/cn")
+        browser = SeleniumBrowser("https://avmoo.website/cn")
         await browser.init_browser()
-        if not browser.page:
+        if not browser.driver:
             return
 
         try:
             search_url = f"https://avmoo.website/cn/search/{query}"
-            await browser.page.goto(search_url, wait_until="domcontentloaded")
-            html = await browser.page.content()
+            await browser.goto(search_url)
+            html = await browser.get_page_source()
             soup = BeautifulSoup(html, 'html.parser')
             # 找到class为"item"的div
             item_div = soup.find('div', class_='item')
@@ -159,8 +159,8 @@ def get_av_cover(query):
             if img_tag:
                 title = img_tag['title']
             
-            await browser.page.goto(link, wait_until="domcontentloaded")
-            html = await browser.page.content()
+            await browser.goto(link)
+            html = await browser.get_page_source()
             soup = BeautifulSoup(html, 'html.parser')
             screencap_div = soup.find('div', class_='screencap')
             if screencap_div:

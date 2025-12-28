@@ -16,18 +16,22 @@ import yaml
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.parse import urlparse
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from app.core.offline_task_retry import sehua_offline
-from app.core.headless_browser import *
+from app.core.selenium_browser import SeleniumBrowser
 import asyncio
-import multiprocessing
-import threading
-import app.utils.message_queue as mq_module
+import requests
 
 # 全局browser
 browser = None
-# 全局重试队列（子进程用）
-retry_info_queue = None
+
+def _build_full_url(path: str):
+    """根据 browser.base_url 构造完整 URL，避免重复添加协议头"""
+    if not browser or not browser.base_url:
+        return path
+    base = browser.base_url.rstrip('/')
+    if not base.startswith('http'):
+        base = f"https://{base}"
+    return f"{base}/{path.lstrip('/')}"
 
 def get_base_url():
     base_url = init.bot_config.get('sehua_spider', {}).get('base_url', "www.sehuatang.net")
@@ -52,9 +56,7 @@ async def download_image(image_url, save_path):
     if not image_url:
         return False, "图片URL为空"
     
-    # 获取全局页面对象
-    page = browser.get_global_page()
-    if not page:
+    if not browser or not browser.driver:
         return False, "无法获取浏览器页面"
     
     try:
@@ -65,15 +67,26 @@ async def download_image(image_url, save_path):
         
         init.logger.debug(f"开始下载外链图片: {image_url}")
         
-        # 直接访问图片URL（最简单可靠的方法）
+        # 使用 requests 配合 selenium cookies 下载
         try:
             init.logger.debug("尝试直接访问图片URL...")
-            await page.set_extra_http_headers({
-                'Referer': f'https://{get_base_url()}/'
-            })
-            response = await page.goto(image_url, wait_until="domcontentloaded", timeout=60000)
             
-            if response and response.status == 200:
+            cookies = await browser.get_cookies()
+            session = requests.Session()
+            for cookie in cookies:
+                session.cookies.set(cookie['name'], cookie['value'])
+            
+            headers = {
+                "User-Agent": init.USER_AGENT,
+                "Referer": f"https://{get_base_url()}/"
+            }
+            
+            def _download():
+                return session.get(image_url, headers=headers, timeout=60)
+            
+            response = await asyncio.to_thread(_download)
+            
+            if response.status_code == 200:
                 # 检查Content-Type是否为图片
                 content_type = response.headers.get('content-type', '').lower()
                 init.logger.debug(f"Content-Type: {content_type}")
@@ -82,7 +95,7 @@ async def download_image(image_url, save_path):
                     init.logger.debug("检测到图片内容，开始下载...")
                     
                     # 获取图片数据
-                    image_data = await response.body()
+                    image_data = response.content
 
                     # 获取文件名
                     filename = get_image_name(image_url)
@@ -107,7 +120,7 @@ async def download_image(image_url, save_path):
                     init.logger.warn(error_msg)
                     return False, error_msg
             else:
-                status_code = response.status if response else "未知"
+                status_code = response.status_code
                 error_msg = f"访问失败，状态码: {status_code}"
                 init.logger.warn(error_msg)
                 return False, error_msg
@@ -121,7 +134,6 @@ async def download_image(image_url, save_path):
         error_msg = f"下载图片时发生错误: {str(e)}"
         init.logger.error(error_msg)
         return False, error_msg
-
 
 def get_section_id(section_name):
     section_map = {
@@ -139,10 +151,10 @@ async def sehua_spider_start_async():
     if not init.bot_config.get('sehua_spider', {}).get('enable', False):
         return
     # 初始化全局浏览器
-    browser = HeadlessBrowser(get_base_url())
+    browser = SeleniumBrowser(get_base_url())
     await browser.init_browser()
     
-    if not browser.page:
+    if not browser.driver:
         return
     try:
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
@@ -163,114 +175,23 @@ async def sehua_spider_start_async():
         # 关闭全局浏览器
         await browser.close()
 
-def start_mq_service():
-    """在子进程中启动消息队列服务"""
-    # 重置消息队列和循环
-    mq_module.message_queue = asyncio.Queue()
-    mq_module.global_loop = None
-    
-    def run_loop():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        token = init.bot_config.get('bot_token')
-        if token:
-            loop.create_task(mq_module.queue_worker(loop, token))
-            loop.run_forever()
-        else:
-            init.logger.error("无法启动子进程消息队列：未找到bot_token")
-
-    t = threading.Thread(target=run_loop, daemon=True)
-    t.start()
-    # 等待循环启动
-    time.sleep(1)
-
-def _run_spider_task(retry_queue=None):
-    """实际执行任务的函数，将在子进程中运行"""
-    global retry_info_queue
-    exit_code = 0
-    if retry_queue:
-        retry_info_queue = retry_queue
-        
+def sehua_spider_start():
     try:
-        # 启动独立的消息队列服务
-        start_mq_service()
-
         asyncio.run(sehua_spider_start_async())
         # 离线到115 (Sync)
         init.logger.info("开始执行涩花离线任务...")
         sehua_offline()
-        init.logger.info("涩花爬虫子进程任务全部完成")
     except Exception as e:
-        init.logger.error(f"涩花爬虫内部执行出错: {e}")
-        import traceback
-        traceback.print_exc()
-        exit_code = 1
-    finally:
-        # 停止消息队列循环
-        try:
-            if mq_module.global_loop and mq_module.global_loop.is_running():
-                 init.logger.info("正在停止子进程消息队列服务...")
-                 mq_module.global_loop.call_soon_threadsafe(mq_module.global_loop.stop)
-        except Exception as e:
-            init.logger.error(f"停止消息队列服务失败: {e}")
-        
-        sys.exit(exit_code)
-
-def sehua_spider_start():
-    """调度器调用的入口函数，负责进程管理和超时控制"""
-    # 设置6小时超时 (6 * 60 * 60 = 21600秒)
-    TIMEOUT_SECONDS = 21600
-    
-    init.logger.info(f"启动涩花爬虫主进程，超时限制: {TIMEOUT_SECONDS}秒")
-    
-    # 创建重试队列
-    retry_queue = multiprocessing.Queue()
-    
-    p = multiprocessing.Process(target=_run_spider_task, args=(retry_queue,), name="SehuaSpiderProcess")
-    p.start()
-    
-    # 等待进程结束或超时
-    p.join(timeout=TIMEOUT_SECONDS)
-    
-    if p.is_alive():
-        init.logger.error(f"涩花爬虫任务执行超过{TIMEOUT_SECONDS}秒，正在强制终止进程...")
-        p.terminate()
-        # 给一点时间让它清理
-        p.join(timeout=5)
-        if p.is_alive():
-             init.logger.error("进程无法终止，尝试kill...")
-             # p.kill() 仅在 Python 3.7+ 可用，这里假设环境支持
-             if hasattr(p, 'kill'):
-                p.kill()
-        init.logger.info("涩花爬虫进程已强制终止")
-    else:
-        if p.exitcode == 0:
-            init.logger.info("涩花爬虫任务正常完成")
-        else:
-            init.logger.error(f"涩花爬虫任务异常退出，退出码: {p.exitcode}")
-            
-    # 检查是否有重试请求
-    try:
-        while not retry_queue.empty():
-            section_name, date = retry_queue.get_nowait()
-            init.logger.info(f"收到子进程的重试请求: [{section_name}] 分区")
-            try:
-                from app.core.scheduler import schedule_sehua_retry
-                schedule_sehua_retry(section_name, date, delay_minutes=30)
-                init.logger.warn(f"⏰ 已在主进程安排 [{section_name}] 分区30分钟后重试")
-            except Exception as e:
-                init.logger.error(f"处理重试请求失败: {e}")
-    except Exception as e:
-        init.logger.error(f"读取重试队列失败: {e}")
+        init.logger.error(f"涩花爬虫启动失败: {e}")
         
         
 async def sehua_spider_by_date_async(date):
     """完整的爬虫启动函数，包含浏览器生命周期管理"""
     global browser
-    browser = HeadlessBrowser(get_base_url())
+    browser = SeleniumBrowser(get_base_url())
     await browser.init_browser()
     # 初始化全局浏览器
-    if not browser.page:
+    if not browser.driver:
         return
     try:
         sections = init.bot_config['sehua_spider'].get('sections', [])
@@ -309,9 +230,6 @@ async def section_spider(section_name, date):
         init.logger.info(f"没有找到 {section_name} 在 {date} 的更新内容")
         return
     
-    # 使用全局页面对象
-    page = browser.get_global_page()
-    
     successful_count = 0
     failed_count = 0
     
@@ -319,7 +237,7 @@ async def section_spider(section_name, date):
 
     try:
         for i, topic in enumerate(update_list):
-            url = f"https://{browser.base_url}/{topic}"
+            url = _build_full_url(topic)
             init.logger.debug(f"正在处理第 {i+1}/{len(update_list)} 个话题: {url}")
             
             success = False
@@ -335,15 +253,15 @@ async def section_spider(section_name, date):
                     
                     # 尝试访问页面
                     init.logger.debug(f"  尝试访问 (第 {retry+1} 次)...")
-                    await page.goto(url, wait_until="domcontentloaded")
+                    await browser.goto(url)
                     
                     # 检查年龄验证
-                    await age_check(page)
+                    await age_check()
                     
                     # 等待页面完全加载
-                    await page.wait_for_load_state("networkidle", timeout=60000)
+                    # await page.wait_for_load_state("networkidle", timeout=60000)
                     
-                    html = await page.content()
+                    html = await browser.get_page_source()
                     if html and len(html) > 1000:  # 确保获取到完整页面
                         result = await parse_topic(section_name, html, url, date)
                         if result and result.get('title'):
@@ -357,12 +275,6 @@ async def section_spider(section_name, date):
                     else:
                         init.logger.warn(f"页面内容过短，可能加载失败")
 
-                except PlaywrightTimeoutError as e:
-                    init.logger.warn(f"第 {retry+1} 次尝试超时: {str(e)}")
-                    if retry < max_retries - 1:
-                        wait_time = (retry + 1) * 10  # 递增等待时间
-                        init.logger.debug(f"  等待 {wait_time} 秒后重试...")
-                        await asyncio.sleep(wait_time)
                 except Exception as e:
                     init.logger.warn(f"第 {retry+1} 次尝试出错: {str(e)}")
                     if retry < max_retries - 1:
@@ -484,13 +396,9 @@ async def get_section_update(section_name, date):
     if section_id == 0:
         return all_data_today
     
-    
-    # 使用全局页面对象
-    page = browser.get_global_page()
-    
     try:
         for page_num in range(1, 10):
-            url = f"https://{browser.base_url}/forum.php?mod=forumdisplay&fid={section_id}&page={page_num}"
+            url = _build_full_url(f"forum.php?mod=forumdisplay&fid={section_id}&page={page_num}")
             init.logger.info(f"正在获取 {section_name} 第 {page_num} 页...")
             
             success = False
@@ -503,14 +411,14 @@ async def get_section_update(section_name, date):
                         await asyncio.sleep(delay)
                     
                     # 访问目标页面
-                    await page.goto(url, wait_until="domcontentloaded")
-                    await age_check(page)
+                    await browser.goto(url)
+                    await age_check()
                     
                     # 等待页面完全加载
-                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"], timeout=60000)
+                    await browser.wait_for_element("tbody[id^='normalthread_']")
 
                     # 获取页面 HTML
-                    html = await page.content()
+                    html = await browser.get_page_source()
                     if html and len(html) > 1000:
                         # 验证页面是否包含预期的内容结构
                         if 'normalthread_' in html or 'postlist' in html:
@@ -528,10 +436,6 @@ async def get_section_update(section_name, date):
                     else:
                         init.logger.warn(f"  页面内容过短，可能加载失败")
                         
-                except PlaywrightTimeoutError as e:
-                    init.logger.warn(f"第 {retry+1} 次尝试超时: {str(e)}")
-                    if retry < max_retries - 1:
-                        await asyncio.sleep((retry + 1) * 10)
                 except Exception as e:
                     init.logger.warn(f"第 {retry+1} 次尝试出错: {str(e)}")
                     if retry < max_retries - 1:
@@ -539,22 +443,9 @@ async def get_section_update(section_name, date):
             
             if not success:
                 init.logger.warn(f"第 {page_num} 页获取失败，跳过")
-                # 如果是第一页就失败，说明可能遇到严重问题，安排延迟重试
                 if page_num == 1:
-                    init.logger.error(f"❌ [{section_name}] 分区第1页获取失败，安排延迟重试")
-                    try:
-                        # 将重试请求放入队列，由主进程处理
-                        if retry_info_queue:
-                            retry_info_queue.put((section_name, date))
-                            init.logger.warn(f"⏰ 已请求主进程安排 [{section_name}] 分区30分钟后重试")
-                        else:
-                            init.logger.error("❌ 无法安排重试：重试队列未初始化")
-                            
-                        return []  # 返回空列表，终止当前爬取
-                    except Exception as scheduler_error:
-                        init.logger.error(f"安排延迟重试时出错: {str(scheduler_error)}")
-                        # 即使调度器出错，也要终止当前爬取避免无限循环
-                        return []
+                     init.logger.error(f"❌ [{section_name}] 分区第1页获取失败，停止当前分区爬取")
+                     return []
                 break
                 
     except Exception as e:
@@ -615,43 +506,53 @@ def parse_section_page(html_content, date, page_num):
     return topics
 
 
-async def age_check(page):
+async def age_check():
     try:
         # 等待页面基本加载
-        await browser.wait_for_page_loaded(timeout=30000)
+        # await browser.wait_for_page_loaded(timeout=30000)
         
-        content = await page.content()
-        init.logger.debug(f"  当前页面URL: {page.url}")
+        content = await browser.get_page_source()
         init.logger.debug(f"  页面内容长度: {len(content)}")
-        
-        if "满18岁，请点此进入" in content:
-            init.logger.info("  检测到年龄验证页面，正在点击进入...")
-            try:
-                await page.click("text=满18岁，请点此进入", timeout=30000)
-                
-                # 等待页面跳转并完全加载
-                init.logger.debug("  等待页面跳转和加载...")
-                await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']", ".t_f"])
-                
-                # 验证页面是否成功跳转
-                new_content = await page.content()
-                if len(new_content) > len(content):
-                    init.logger.info(f"  年龄验证通过，页面已加载 (内容长度: {len(new_content)})")
-                else:
-                    init.logger.warn("  页面内容似乎没有变化，可能验证失败")
-                    
-            except Exception as click_error:
-                init.logger.warn(f"  点击年龄验证按钮失败: {str(click_error)}")
-                # 尝试其他方式
-                try:
-                    await page.get_by_text("满18岁，请点此进入").click(timeout=30000)
-                    await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
-                    init.logger.debug("  使用备用方式通过年龄验证")
-                except Exception as backup_error:
-                    init.logger.warn(f"  备用年龄验证方式也失败: {str(backup_error)}")
+        # 检测多种可能的年龄验证提示文本
+        age_indicators = ["满18岁，请点此进入", "满18岁,请点此进入", "点此进入", "进入论坛", "进入"]
+        if any(ind in content for ind in age_indicators):
+            init.logger.info("  检测到年龄验证页面，尝试通过多种方式进入...")
+            initial_url = await browser.get_current_url()
+            passed = False
+
+            # 尝试多次点击不同文本的按钮
+            click_texts = ["满18岁，请点此进入", "点此进入", "进入论坛", "进入"]
+            for attempt in range(3):
+                for txt in click_texts:
+                    try:
+                        await browser.click_text(txt)
+                        await asyncio.sleep(1)
+                    except Exception:
+                        pass
+
+                # 等待页面发生变化或期望元素出现（最长等待 15s）
+                for _ in range(15):
+                    await asyncio.sleep(1)
+                    new_content = await browser.get_page_source()
+                    current_url = await browser.get_current_url()
+                    if current_url and current_url != initial_url:
+                        passed = True
+                        break
+                    if len(new_content) > len(content) + 200:
+                        passed = True
+                        break
+                    if 'tbody id=' in new_content or 'postlist' in new_content or 'normalthread_' in new_content or 'class="t_f"' in new_content:
+                        passed = True
+                        break
+                if passed:
+                    init.logger.info("  年龄验证通过，页面已加载")
+                    break
+
+            if not passed:
+                init.logger.warn("  页面内容似乎没有变化，可能验证失败")
         else:
             # 即使没有年龄验证，也要等待页面完全加载
-            await browser.wait_for_page_loaded(expected_elements=["tbody[id^='normalthread_']"])
+            await browser.wait_for_element("tbody[id^='normalthread_']")
             
     except Exception as e:
         init.logger.warn(f"  年龄验证处理出错: {str(e)}")

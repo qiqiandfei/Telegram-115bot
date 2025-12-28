@@ -120,6 +120,7 @@ async def select_main_category(update: Update, context: ContextTypes.DEFAULT_TYP
     elif selected_main_category == "last_save_path":
         # 直接使用最后一次保存的路径
         if hasattr(init, 'bot_session') and "av_last_save" in init.bot_session:
+            user_id = update.effective_user.id
             last_path = init.bot_session['av_last_save']
             # 批量磁力下载
             if "dl_links" in context.user_data:
@@ -130,7 +131,6 @@ async def select_main_category(update: Update, context: ContextTypes.DEFAULT_TYP
             else:
                 av_number = context.user_data["av_number"]
                 context.user_data["selected_path"] = last_path
-                user_id = update.effective_user.id
                 
                 # 抓取磁力
                 await query.edit_message_text(f"🔍 正在搜索 [{av_number}] 的磁力链接...")

@@ -178,6 +178,6 @@ ai:
   # 请求地址
   api_url: https://api.siliconflow.cn/v1/messages
   # api_key
-  api_key: sk-cwwleebtphkxfpncvdeirutgbbmbquemdbgeisoapndcoryu
+  api_key: sk-xxxxxxxxxxxxxxxxxxx
   # 模型
-  model: deepseek-ai/DeepSeek-V3.2-Exp
+  model: deepseek-ai/DeepSeek-V3.2

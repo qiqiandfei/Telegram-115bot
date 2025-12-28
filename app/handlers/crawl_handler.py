@@ -24,6 +24,24 @@ async def crawl_sehua(update: Update, context: ContextTypes.DEFAULT_TYPE):
         thread = threading.Thread(target=sehua_spider_by_date, args=(context.user_data['date'],))
         thread.start()
         return
+    
+async def rss_t66y(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    usr_id = update.message.from_user.id
+    if not init.check_user(usr_id):
+        await update.message.reply_text("⚠️ 对不起，您无权使用115机器人！")
+        return
+    init.logger.info("t66y默认爬取当日数据")
+    
+    if init.RSS_T66Y_STATUS == 1:
+        await update.message.reply_text("⚠️ t66y订阅任务正在进行中，请稍后再试！")
+        return
+    else:
+        init.RSS_T66Y_STATUS = 1
+        await update.message.reply_text(f"🕷️ 开始订阅t66y数据，订阅完成后会发送通知，请稍后...")
+        from app.core.t66y import start_t66y_rss
+        thread = threading.Thread(target=start_t66y_rss, args=())
+        thread.start()
+        return
 
 async def crawl_jav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usr_id = update.message.from_user.id
@@ -57,6 +75,8 @@ def register_crawl_handlers(application):
     """crawl处理器注册函数"""
     crawl_sehua_handler = CommandHandler('csh', crawl_sehua)
     application.add_handler(crawl_sehua_handler)
+    rss_t66y_handler = CommandHandler('rt66y', rss_t66y)
+    application.add_handler(rss_t66y_handler)
     crawl_jav_handler = CommandHandler('cjav', crawl_jav)
     application.add_handler(crawl_jav_handler)
     init.logger.info("✅ Crawl处理器已注册")

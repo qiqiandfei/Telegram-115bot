@@ -7,7 +7,7 @@ from telethon.tl.types import InputFileLocation, InputDocumentFileLocation
 
 logger = logging.getLogger(__name__)
 
-async def download_file_parallel(client: TelegramClient, message, file_path, progress_callback=None, threads=4):
+async def download_file_parallel(client: TelegramClient, message, file_path, progress_callback=None, threads=4, cancel_event=None):
     """
     使用多线程分片下载 Telegram 文件
     """
@@ -17,6 +17,7 @@ async def download_file_parallel(client: TelegramClient, message, file_path, pro
         
         # 如果不是文档类型，或者文件太小（小于10MB），使用默认下载
         if not document or document.size < 10 * 1024 * 1024:
+            # 默认下载不支持 cancel_event，这里简单处理
             return await client.download_media(message, file=file_path, progress_callback=progress_callback)
             
         file_size = document.size
@@ -54,9 +55,18 @@ async def download_file_parallel(client: TelegramClient, message, file_path, pro
         async def download_chunk(offset):
             nonlocal downloaded, failed
             if failed: return
+            
+            # 检查取消信号
+            if cancel_event and cancel_event.is_set():
+                failed = True
+                return
 
             retries = 5
             while retries > 0 and not failed:
+                if cancel_event and cancel_event.is_set():
+                    failed = True
+                    return
+                    
                 try:
                     async with sem:
                         current_part_size = part_size
@@ -95,14 +105,57 @@ async def download_file_parallel(client: TelegramClient, message, file_path, pro
         for offset in range(0, file_size, part_size):
             tasks.append(asyncio.create_task(download_chunk(offset)))
 
-        await asyncio.gather(*tasks)
+        # 使用 asyncio.wait 监控任务和取消事件
+        if cancel_event:
+            cancel_waiter = asyncio.create_task(cancel_event.wait())
+            download_future = asyncio.gather(*tasks)
+            
+            done, pending = await asyncio.wait(
+                [download_future, cancel_waiter],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            if cancel_waiter in done:
+                logger.info("检测到取消信号，立即停止所有下载任务")
+                # 取消所有下载任务
+                download_future.cancel()
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                # 等待任务清理完成
+                try:
+                    await download_future
+                except asyncio.CancelledError:
+                    pass
+                raise asyncio.CancelledError("用户取消下载")
+            else:
+                # 下载完成（或失败）
+                cancel_waiter.cancel()
+                await download_future
+        else:
+            await asyncio.gather(*tasks)
         
         if failed:
+            if cancel_event and cancel_event.is_set():
+                raise asyncio.CancelledError("用户取消下载")
             raise Exception("多线程下载中有分片失败")
             
         return file_path
 
+    except asyncio.CancelledError:
+        logger.info("下载已取消")
+        # 确保清理文件
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        raise
+
     except Exception as e:
+        if cancel_event and cancel_event.is_set():
+            raise asyncio.CancelledError("用户取消下载")
+            
         logger.error(f"多线程下载遇到错误: {e}，正在回退到单线程下载...")
         # 如果多线程下载失败，回退到原生下载
         # 确保文件被重置或覆盖

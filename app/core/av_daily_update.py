@@ -222,20 +222,6 @@ def av_daily_update():
     else:
         init.logger.info("没有找到最新的AV更新。")  
         
-
-def repair_leak():
-    if not init.bot_config.get('av_daily_update', {}).get('enable', False):
-        return
-    date = datetime.datetime.now().strftime("%Y-%m-%d")
-    need_update = False
-    with SqlLiteLib() as sqlite:
-        sql = "select COUNT(*) from av_daily_update where publish_date=?"
-        count = sqlite.query_one(sql, (date,))
-        if count is not None and count == 0:
-            need_update = True
-    if need_update:
-        av_daily_update()
-        
         
 def crawl_javbee_by_date(date):
     init.logger.info(f"开始获取{date}的AV更新...")

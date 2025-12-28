@@ -13,9 +13,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Fonts for Chinese support
     fonts-liberation \
     fonts-noto-cjk \
-    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y google-chrome-stable \
+    && \
+    # Only add Google Chrome repository and install chrome on amd64 architectures.
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && apt-get install -y google-chrome-stable; \
+    else \
+        echo "Skipping google-chrome installation on arch $(dpkg --print-architecture)"; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

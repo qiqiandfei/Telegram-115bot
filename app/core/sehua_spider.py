@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
 import sys
 import os
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -140,7 +141,8 @@ def get_section_id(section_name):
         "国产原创": 2,
         "亚洲无码原创": 36,
         "亚洲有码原创": 37,
-        "高清中文字幕": 103
+        "高清中文字幕": 103,
+        "素人有码": 104
     }
     return section_map.get(section_name, 0)
 
@@ -156,6 +158,10 @@ async def sehua_spider_start_async():
     
     if not browser.driver:
         return
+        
+    # 尝试通过 Cloudflare 验证
+    await browser.pass_cloudflare_check()
+    
     try:
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
         date = yesterday.strftime("%Y-%m-%d")
@@ -193,6 +199,10 @@ async def sehua_spider_by_date_async(date):
     # 初始化全局浏览器
     if not browser.driver:
         return
+        
+    # 尝试通过 Cloudflare 验证
+    await browser.pass_cloudflare_check()
+    
     try:
         sections = init.bot_config['sehua_spider'].get('sections', [])
         for section in sections:
@@ -255,6 +265,9 @@ async def section_spider(section_name, date):
                     init.logger.debug(f"  尝试访问 (第 {retry+1} 次)...")
                     await browser.goto(url)
                     
+                    # 检查 Cloudflare
+                    await browser.pass_cloudflare_check()
+
                     # 检查年龄验证
                     await age_check()
                     
@@ -402,7 +415,7 @@ async def get_section_update(section_name, date):
             init.logger.info(f"正在获取 {section_name} 第 {page_num} 页...")
             
             success = False
-            max_retries = 10
+            max_retries = 3
             
             for retry in range(max_retries):
                 try:
@@ -412,6 +425,7 @@ async def get_section_update(section_name, date):
                     
                     # 访问目标页面
                     await browser.goto(url)
+                    await browser.pass_cloudflare_check()
                     await age_check()
                     
                     # 等待页面完全加载
@@ -433,6 +447,7 @@ async def get_section_update(section_name, date):
                                 return all_data_today
                         else:
                             init.logger.warn(f"  页面结构异常，可能仍在加载中")
+                            await browser.pass_cloudflare_check()
                     else:
                         init.logger.warn(f"  页面内容过短，可能加载失败")
                         

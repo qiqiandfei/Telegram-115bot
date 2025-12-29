@@ -1,18 +1,24 @@
 import asyncio
 import re
 import time
+import requests
+import json
 from concurrent.futures import ThreadPoolExecutor
-from seleniumbase import Driver
 from selenium.webdriver.common.by import By
 import init
-
+from seleniumbase import SB
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+
+# Flaresolverr 配置
+# 如果在 docker-compose 中运行，可以直接使用服务名
+FLARESOLVERR_URL = "http://flaresolverr:8191/v1"
 
 class SeleniumBrowser:
     def __init__(self, base_url=None):
         self.base_url = base_url
         self.driver = None
+        self.sb_context = None
         self.executor = ThreadPoolExecutor(max_workers=1)
 
     async def init_browser(self):
@@ -21,9 +27,30 @@ class SeleniumBrowser:
     def _init_driver(self):
         try:
             init.logger.info("正在初始化 SeleniumBase 浏览器...")
-            # uc=True 开启 undetected-chromedriver 模式
-            # headless=True 开启无头模式
-            self.driver = Driver(uc=True, headless=True, agent=init.USER_AGENT)
+            # uc=True 模式在 Docker 中运行时，必须确保网络能连接 Google 下载驱动
+            # 显式添加 --no-sandbox 等参数，防止在 root 用户下运行崩溃或卡死
+            # 注意：SB() 不支持 switches 参数，使用 chromium_arg 传递参数
+            self.sb_context = SB(
+                uc=True, 
+                headless2=True, # 使用新版 headless 模式，更难被检测
+                agent=init.USER_AGENT,
+                chromium_arg="--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars"
+            )
+            self.sb = self.sb_context.__enter__()
+            self.driver = self.sb.driver 
+            
+            # 额外的反检测脚本
+            try:
+                self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                    "source": """
+                        Object.defineProperty(navigator, 'webdriver', {
+                            get: () => undefined
+                        });
+                    """
+                })
+            except:
+                pass
+
             if self.base_url:
                 if not self.base_url.startswith('http'):
                     self.base_url = f"https://{self.base_url}"
@@ -33,17 +60,22 @@ class SeleniumBrowser:
             init.logger.error(f"SeleniumBase 浏览器初始化失败: {e}")
 
     async def close(self):
-        if self.driver:
-            await asyncio.get_running_loop().run_in_executor(self.executor, self._quit)
-
-    def _quit(self):
         try:
-            if self.driver:
-                self.driver.quit()
-                self.driver = None
-            init.logger.info("SeleniumBase 浏览器已关闭")
+            if self.sb_context:
+                init.logger.info("正在关闭 SeleniumBase 浏览器并清理环境...")
+                # 使用 run_in_executor 包装同步的 __exit__ 操作
+                await asyncio.get_running_loop().run_in_executor(
+                    self.executor, 
+                    self.sb_context.__exit__, 
+                    None, None, None
+                )
+                init.logger.info("浏览器清理完成")
         except Exception as e:
-            init.logger.error(f"关闭 SeleniumBase 浏览器失败: {e}")
+            init.logger.error(f"关闭浏览器时发生错误: {e}")
+        finally:
+            # 确保引用被重置，防止重入
+            self.driver = None
+            self.sb_context = None
 
     async def goto(self, url):
         await asyncio.get_running_loop().run_in_executor(self.executor, self._goto_sync, url)
@@ -93,121 +125,89 @@ class SeleniumBrowser:
             WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((by, selector)))
         except: pass
 
-    async def fetch_magnet(self, url):
-        return await asyncio.get_running_loop().run_in_executor(self.executor, self._fetch_magnet_sync, url)
+    async def pass_cloudflare_check(self):
+        await asyncio.get_running_loop().run_in_executor(self.executor, self._pass_cloudflare_check_sync)
 
-    def _fetch_magnet_sync(self, url):
+    def _pass_cloudflare_check_sync(self):
         if not self.driver:
-            return ""
-        
-        init.logger.info(f"正在通过 SeleniumBase 获取磁力: {url}")
+            return
+
         try:
-            self.driver.get(url)
-            time.sleep(2) # 等待页面加载
-            
-            # Cloudflare 验证处理
+            # 1. 检查是否是 Cloudflare 页面
             title = self.driver.title
-            if "Just a moment" in title or "Cloudflare" in title:
-                init.logger.info("检测到 Cloudflare 验证，尝试处理...")
-                time.sleep(5) # 等待一下，有时会自动通过
-                
-                # 尝试查找并点击验证框
-                try:
-                    # 查找所有iframe
-                    iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
-                    for iframe in iframes:
-                        try:
-                            self.driver.switch_to.frame(iframe)
-                            # 尝试点击 checkbox
-                            checkbox = self.driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")
-                            if checkbox:
-                                checkbox[0].click()
-                                init.logger.info("点击了 Cloudflare 验证框")
-                                time.sleep(5)
-                                break
-                            # 尝试点击 text
-                            body_text = self.driver.find_element(By.TAG_NAME, "body").text
-                            if "Verify you are human" in body_text:
-                                self.driver.find_element(By.TAG_NAME, "body").click() # 简单点击body试试
-                                break
-                        except:
-                            pass
-                        finally:
-                            self.driver.switch_to.default_content()
-                except Exception as e:
-                    init.logger.warn(f"尝试点击验证框失败: {e}")
+            if not title or not any(x in title for x in ["Just a moment", "Cloudflare", "请稍候", "安全检查"]):
+                return
 
-            # rmdown 特殊处理
-            if "rmdown.com" in url:
-                try:
-                    # 尝试授予剪贴板权限
+            init.logger.info(f"检测到 Cloudflare 验证 ({title})，尝试使用 Flaresolverr 处理...")
+            
+            # 获取当前URL
+            current_url = self.driver.current_url
+            if not current_url:
+                return
+
+            # 2. 调用 Flaresolverr
+            payload = {
+                "cmd": "request.get",
+                "url": current_url,
+                "maxTimeout": 60000
+            }
+            headers = {"Content-Type": "application/json"}
+            
+            init.logger.info(f"请求 Flaresolverr: {FLARESOLVERR_URL}")
+            response = requests.post(FLARESOLVERR_URL, json=payload, headers=headers, timeout=65)
+            resp_data = response.json()
+            
+            if resp_data.get("status") == "ok":
+                init.logger.info("Flaresolverr 验证成功，正在同步 Cookies...")
+                solution = resp_data.get("solution", {})
+                cookies = solution.get("cookies", [])
+                user_agent = solution.get("userAgent")
+
+                # 3. 同步 User-Agent (关键)
+                if user_agent:
+                    init.logger.info(f"同步 Flaresolverr User-Agent: {user_agent[:50]}...")
                     try:
-                        self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-                            "origin": url,
-                            "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]
-                        })
-                    except:
-                        pass
-
-                    # 等待按钮出现并点击
-                    cbtn = self.driver.find_elements(By.ID, "cbtn")
-                    if cbtn:
-                        cbtn[0].click()
-                        time.sleep(1)
-                        
-                        # 尝试从剪贴板读取
-                        magnet = self.driver.execute_async_script("""
-                            var callback = arguments[arguments.length - 1];
-                            navigator.clipboard.readText()
-                                .then(text => callback(text))
-                                .catch(err => callback(''));
-                        """)
-                        
-                        if magnet:
-                            # 如果不是以magnet:开头，尝试拼接
-                            if not magnet.startswith("magnet:"):
-                                magnet = f"magnet:?{magnet}"
-                            
-                            # 清理tracker，只保留xt
-                            try:
-                                from urllib.parse import urlparse, parse_qs
-                                parsed = urlparse(magnet)
-                                params = parse_qs(parsed.query)
-                                xt = params.get('xt', [])
-                                if xt:
-                                    magnet = f"magnet:?xt={xt[0]}"
-                            except:
-                                pass
-
-                            if magnet.startswith("magnet:"):
-                                init.logger.info("成功从剪贴板获取磁力链接")
-                                return magnet
-                except Exception as e:
-                    init.logger.warn(f"rmdown 处理失败: {e}")
+                        self.driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": user_agent})
+                    except Exception as e:
+                        init.logger.warn(f"设置 User-Agent 失败: {e}")
                 
-                # rmdown 只有剪贴板这一种获取方式，如果失败直接返回空
-                return ""
-
-            # 通用磁力链接提取
-            page_source = self.driver.page_source
-            magnet_pattern = re.compile(r"magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}", re.IGNORECASE)
-            
-            # 1. 检查页面源码中的文本
-            match = magnet_pattern.search(page_source)
-            if match:
-                return match.group(0)
-            
-            # 2. 检查所有链接的 href
-            links = self.driver.find_elements(By.TAG_NAME, "a")
-            for link in links:
-                try:
-                    href = link.get_attribute("href")
-                    if href and magnet_pattern.search(href):
-                        return href
-                except:
-                    continue
+                # 4. 同步 Cookies
+                if cookies:
+                    self.driver.delete_all_cookies()
+                    for cookie in cookies:
+                        cookie_dict = {
+                            'name': cookie['name'],
+                            'value': cookie['value'],
+                            'domain': cookie['domain'],
+                            'path': cookie['path']
+                        }
+                        if 'expiry' in cookie: cookie_dict['expiry'] = int(cookie['expiry'])
+                        if 'secure' in cookie: cookie_dict['secure'] = cookie['secure']
+                        if 'httpOnly' in cookie: cookie_dict['httpOnly'] = cookie['httpOnly']
+                        if 'sameSite' in cookie: cookie_dict['sameSite'] = cookie['sameSite']
+                            
+                        try:
+                            self.driver.add_cookie(cookie_dict)
+                        except Exception as e:
+                            pass # 忽略个别 cookie 错误
+                    
+                    init.logger.info(f"成功同步 {len(cookies)} 个 Cookies，刷新页面...")
+                    self.driver.refresh()
+                    time.sleep(5)
+                    
+                    # 再次检查
+                    title = self.driver.title
+                    if any(x in title for x in ["Just a moment", "Cloudflare", "请稍候", "安全检查"]):
+                        init.logger.warn("同步 Cookie 后依然显示 Cloudflare 验证页")
+                    else:
+                        init.logger.info("Cloudflare 验证已通过")
+            else:
+                init.logger.error(f"Flaresolverr 返回错误: {resp_data}")
 
         except Exception as e:
-            init.logger.error(f"SeleniumBase 获取磁力失败: {e}")
-            
-        return ""
+            init.logger.warn(f"Cloudflare 验证处理出错: {e}")
+
+    async def run_with_driver(self, func, *args):
+        """在 executor 中运行同步函数，并将 driver 作为第一个参数传入"""
+        return await asyncio.get_running_loop().run_in_executor(self.executor, func, self.driver, *args)
+

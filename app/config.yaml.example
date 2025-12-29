@@ -115,6 +115,8 @@ sehua_spider:
 #      save_path: /AV/涩花/亚洲有码原创
 #    - name: 高清中文字幕
 #      save_path: /AV/涩花/高清中文字幕
+#     - name: 素人有码
+#       save_path: /AV/涩花/素人有码
   # 通知我
   notify_me: true
   # 按年月整理，开启后会自动在保存目录创建年/月的文件夹

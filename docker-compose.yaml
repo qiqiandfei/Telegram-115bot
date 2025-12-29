@@ -9,6 +9,9 @@ services:
       # HTTPS_PROXY: http://your_https_proxy:proxy_port
       # NO_PROXY: localhost,127.0.0.1,::1  # 根据实际需要添加其他不需代理的地址
     image: qiqiandfei/115-bot:latest
+    # 共享内存大小，防止浏览器崩溃，有条件可以多给点
+    shm_size: "2gb"
+    # 浏览器初始化失败时尝试打开此选项
     # privileged: True
     restart: unless-stopped
     volumes:
@@ -16,3 +19,11 @@ services:
       - /to/your/path/tmp:/tmp        # 临时目录
       - /to/your/path/media:/media    # 媒体目录（软链目录）
       - /to/your/path/CloudNAS:/CloudNAS:rslave # CD2挂载目录
+
+  flaresolverr:
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Asia/Shanghai
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped

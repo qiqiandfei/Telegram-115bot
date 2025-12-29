@@ -22,6 +22,105 @@ from app.core.selenium_browser import SeleniumBrowser
 from telegram.helpers import escape_markdown
 import html
 import asyncio
+import time
+from selenium.webdriver.common.by import By
+
+def _extract_magnet_sync(driver, url):
+    """
+    同步执行的磁力链接提取逻辑 (运行在 executor 中)
+    """
+    if not driver:
+        return ""
+    
+    init.logger.info(f"正在提取磁力链接: {url}")
+    try:
+        # rmdown 特殊处理
+        if "rmdown.com" in url:
+            try:
+                # 尝试授予剪贴板权限
+                try:
+                    driver.execute_cdp_cmd("Browser.grantPermissions", {
+                        "origin": url,
+                        "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]
+                    })
+                except:
+                    pass
+
+                # 等待按钮出现并点击
+                cbtn = driver.find_elements(By.ID, "cbtn")
+                if cbtn:
+                    cbtn[0].click()
+                    time.sleep(1)
+                    
+                    # 尝试从剪贴板读取
+                    magnet = driver.execute_async_script("""
+                        var callback = arguments[arguments.length - 1];
+                        navigator.clipboard.readText()
+                            .then(text => callback(text))
+                            .catch(err => callback(''));
+                    """)
+                    
+                    if magnet:
+                        # 如果不是以magnet:开头，尝试拼接
+                        if not magnet.startswith("magnet:"):
+                            magnet = f"magnet:?{magnet}"
+                        
+                        # 清理tracker，只保留xt
+                        try:
+                            from urllib.parse import urlparse, parse_qs
+                            parsed = urlparse(magnet)
+                            params = parse_qs(parsed.query)
+                            xt = params.get('xt', [])
+                            if xt:
+                                magnet = f"magnet:?xt={xt[0]}"
+                        except:
+                            pass
+
+                        if magnet.startswith("magnet:"):
+                            init.logger.info("成功从剪贴板获取磁力链接")
+                            return magnet
+            except Exception as e:
+                init.logger.warn(f"rmdown 处理失败: {e}")
+            
+            # rmdown 只有剪贴板这一种获取方式，如果失败直接返回空
+            return ""
+
+        # 通用磁力链接提取
+        page_source = driver.page_source
+        magnet_pattern = re.compile(r"magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}", re.IGNORECASE)
+        
+        # 1. 检查页面源码中的文本
+        match = magnet_pattern.search(page_source)
+        if match:
+            return match.group(0)
+        
+        # 2. 检查所有链接的 href
+        links = driver.find_elements(By.TAG_NAME, "a")
+        for link in links:
+            try:
+                href = link.get_attribute("href")
+                if href and magnet_pattern.search(href):
+                    return href
+            except:
+                continue
+
+    except Exception as e:
+        init.logger.error(f"提取磁力链接失败: {e}")
+        
+    return ""
+
+async def fetch_t66y_magnet(browser, url):
+    """
+    t66y 专用的磁力链接获取函数
+    """
+    # 1. 访问页面
+    await browser.goto(url)
+    
+    # 2. 过盾检查
+    await browser.pass_cloudflare_check()
+    
+    # 3. 提取磁力 (在 executor 中运行同步逻辑)
+    return await browser.run_with_driver(_extract_magnet_sync, url)
 
 
 def parse_t66y_html(html_content):
@@ -168,7 +267,7 @@ async def pares_t66y_rss(rss_data, section_name, save_path, browser):
             
             # 点击连接获取磁力
             if not magnet and fetch_url:
-                magnet = await browser.fetch_magnet(fetch_url)
+                magnet = await fetch_t66y_magnet(browser, fetch_url)
                 
             if not magnet:
                 # invalid_resource = json.dumps(result)

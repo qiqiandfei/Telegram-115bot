@@ -418,7 +418,6 @@ def init_db():
         );
         '''
         sqlite.execute_sql(create_table_query)
-        logger.info("init DataBase success.")
         
         create_table_query = '''
         CREATE TABLE IF NOT EXISTS t66y (

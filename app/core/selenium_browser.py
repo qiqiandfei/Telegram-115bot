@@ -1,6 +1,7 @@
 import asyncio
 import re
 import time
+import os
 import requests
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -11,8 +12,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # Flaresolverr 配置
-# 如果在 docker-compose 中运行，可以直接使用服务名
-FLARESOLVERR_URL = "http://flaresolverr:8191/v1"
+# 优先读取环境变量，默认使用 docker-compose 内部服务名
+FLARESOLVERR_URL = os.getenv("FLARESOLVERR_URL", "http://flaresolverr:8191/v1")
 
 class SeleniumBrowser:
     def __init__(self, base_url=None):
@@ -25,39 +26,65 @@ class SeleniumBrowser:
         await asyncio.get_running_loop().run_in_executor(self.executor, self._init_driver)
 
     def _init_driver(self):
-        try:
-            init.logger.info("正在初始化 SeleniumBase 浏览器...")
-            # uc=True 模式在 Docker 中运行时，必须确保网络能连接 Google 下载驱动
-            # 显式添加 --no-sandbox 等参数，防止在 root 用户下运行崩溃或卡死
-            # 注意：SB() 不支持 switches 参数，使用 chromium_arg 传递参数
-            self.sb_context = SB(
-                uc=True, 
-                headless2=True, # 使用新版 headless 模式，更难被检测
-                agent=init.USER_AGENT,
-                chromium_arg="--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars"
-            )
-            self.sb = self.sb_context.__enter__()
-            self.driver = self.sb.driver 
-            
-            # 额外的反检测脚本
-            try:
-                self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                    "source": """
-                        Object.defineProperty(navigator, 'webdriver', {
-                            get: () => undefined
-                        });
-                    """
-                })
-            except:
-                pass
+        # 定义启动参数
+        sb_config = {
+            "uc": True,
+            "agent": init.USER_AGENT,
+            "chromium_arg": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars"
+        }
 
-            if self.base_url:
-                if not self.base_url.startswith('http'):
-                    self.base_url = f"https://{self.base_url}"
-                self.driver.get(self.base_url)
-            init.logger.info("SeleniumBase 浏览器初始化成功")
-        except Exception as e:
-            init.logger.error(f"SeleniumBase 浏览器初始化失败: {e}")
+        # 尝试列表: 先尝试 headless2=True (新版无头), 失败则尝试 headless=True (标准无头)
+        modes = [
+            {"headless2": True, "name": "headless2"},
+            {"headless": True, "name": "headless"}
+        ]
+
+        for mode in modes:
+            try:
+                mode_name = mode.pop("name")
+                init.logger.info(f"正在初始化 SeleniumBase 浏览器 (模式: {mode_name})...")
+                
+                # 合并配置
+                config = sb_config.copy()
+                config.update(mode)
+                
+                self.sb_context = SB(**config)
+                self.sb = self.sb_context.__enter__()
+                self.driver = self.sb.driver 
+                
+                # 额外的反检测脚本
+                try:
+                    self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                        "source": """
+                            Object.defineProperty(navigator, 'webdriver', {
+                                get: () => undefined
+                            });
+                        """
+                    })
+                except:
+                    pass
+
+                if self.base_url:
+                    if not self.base_url.startswith('http'):
+                        self.base_url = f"https://{self.base_url}"
+                    self.driver.get(self.base_url)
+                
+                init.logger.info(f"SeleniumBase 浏览器初始化成功 (模式: {mode_name})")
+                return # 初始化成功，直接返回
+
+            except Exception as e:
+                init.logger.warn(f"SeleniumBase 初始化失败 (模式: {mode_name}): {e}")
+                # 清理可能部分初始化的资源
+                try:
+                    if self.sb_context:
+                        self.sb_context.__exit__(None, None, None)
+                except:
+                    pass
+                self.sb_context = None
+                self.driver = None
+                # 继续下一次循环尝试
+
+        init.logger.error("SeleniumBase 浏览器所有模式初始化均失败")
 
     async def close(self):
         try:

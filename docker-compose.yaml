@@ -4,6 +4,8 @@ services:
     container_name: tg-bot-115
     environment:
       TZ: Asia/Shanghai
+      # 已有 FlareSolverr 服务的话取消注释并填写地址
+      # FLARESOLVERR_URL: http://your_server:8191
       # 填写代理如果需要的话
       # HTTP_PROXY: http://your_http_proxy:proxy_port
       # HTTPS_PROXY: http://your_https_proxy:proxy_port
@@ -20,6 +22,7 @@ services:
       - /to/your/path/media:/media    # 媒体目录（软链目录）
       - /to/your/path/CloudNAS:/CloudNAS:rslave # CD2挂载目录
 
+  # 需要额外部署 FlareSolverr 服务时取消注释此部分
   flaresolverr:
     container_name: flaresolverr
     environment:

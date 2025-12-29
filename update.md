@@ -1,9 +1,7 @@
-# Telegram-115Bot v3.3.1
+# Telegram-115Bot v3.3.2
 ## 本次更新内容：
-- 涩花添加素人有码区，请自行更新配置
-- 爬虫优化
-
-### *注意：本次更新需要更新docker-compose，具体请参考代码库中的“docke-compose.yaml”*
+- 添加浏览器初始化失败时回退机制
+- 添加“FLARESOLVERR_URL”环境变量适配已有服务
 
 有任何使用问题欢迎群内讨论~
 

@@ -6,6 +6,7 @@ import requests
 import json
 from concurrent.futures import ThreadPoolExecutor
 from selenium.webdriver.common.by import By
+from selenium import webdriver
 import init
 from seleniumbase import SB
 from selenium.webdriver.support.ui import WebDriverWait
@@ -14,6 +15,8 @@ from selenium.webdriver.support import expected_conditions as EC
 # Flaresolverr 配置
 # 优先读取环境变量，默认使用 docker-compose 内部服务名
 FLARESOLVERR_URL = os.getenv("FLARESOLVERR_URL", "http://flaresolverr:8191/v1")
+# 远程 Selenium 配置
+REMOTE_SELENIUM_URL = os.getenv("REMOTE_SELENIUM_URL", None)
 
 class SeleniumBrowser:
     def __init__(self, base_url=None):
@@ -26,17 +29,42 @@ class SeleniumBrowser:
         await asyncio.get_running_loop().run_in_executor(self.executor, self._init_driver)
 
     def _init_driver(self):
-        # 定义启动参数
-        sb_config = {
-            "uc": True,
-            "agent": init.USER_AGENT,
-            "chromium_arg": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars"
-        }
+        # 0. 优先尝试远程 WebDriver (如果配置了)
+        if REMOTE_SELENIUM_URL:
+            try:
+                init.logger.info(f"正在连接远程 Selenium: {REMOTE_SELENIUM_URL} ...")
+                options = webdriver.ChromeOptions()
+                options.add_argument('--no-sandbox')
+                options.add_argument('--disable-dev-shm-usage')
+                options.add_argument(f'user-agent={init.USER_AGENT}')
+                
+                self.driver = webdriver.Remote(
+                    command_executor=REMOTE_SELENIUM_URL,
+                    options=options
+                )
+                
+                if self.base_url:
+                    if not self.base_url.startswith('http'):
+                        self.base_url = f"https://{self.base_url}"
+                    self.driver.get(self.base_url)
+                    
+                init.logger.info("远程 Selenium 连接成功")
+                return
+            except Exception as e:
+                init.logger.error(f"远程 Selenium 连接失败: {e}")
+                # 如果远程连接失败，继续尝试本地初始化作为 fallback
+                pass
 
-        # 尝试列表: 先尝试 headless2=True (新版无头), 失败则尝试 headless=True (标准无头)
+        # 基础参数
+        # 添加 --disable-setuid-sandbox 和 --no-zygote 以提高在受限环境(如群晖Docker)下的兼容性
+        base_args = "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars --disable-setuid-sandbox --no-zygote"
+
+        # 尝试列表: 
+        # 1. headless2=True (新版无头, UC模式)
+        # 2. headless=True (标准无头, UC模式)
         modes = [
-            {"headless2": True, "name": "headless2"},
-            {"headless": True, "name": "headless"}
+            {"uc": True, "headless2": True, "name": "uc_headless2", "chromium_arg": base_args},
+            {"uc": True, "headless": True, "name": "uc_headless", "chromium_arg": base_args}
         ]
 
         for mode in modes:
@@ -44,15 +72,17 @@ class SeleniumBrowser:
                 mode_name = mode.pop("name")
                 init.logger.info(f"正在初始化 SeleniumBase 浏览器 (模式: {mode_name})...")
                 
-                # 合并配置
-                config = sb_config.copy()
+                # 构造配置
+                config = {
+                    "agent": init.USER_AGENT,
+                }
                 config.update(mode)
                 
                 self.sb_context = SB(**config)
                 self.sb = self.sb_context.__enter__()
                 self.driver = self.sb.driver 
                 
-                # 额外的反检测脚本
+                # 额外的反检测脚本 (仅在 driver 成功初始化后执行)
                 try:
                     self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
                         "source": """
@@ -173,15 +203,16 @@ class SeleniumBrowser:
                 return
 
             # 2. 调用 Flaresolverr
+            # 群晖等低功耗设备上 Flaresolverr 处理可能较慢，增加超时时间到 2 分钟
             payload = {
                 "cmd": "request.get",
                 "url": current_url,
-                "maxTimeout": 60000
+                "maxTimeout": 120000
             }
             headers = {"Content-Type": "application/json"}
             
             init.logger.info(f"请求 Flaresolverr: {FLARESOLVERR_URL}")
-            response = requests.post(FLARESOLVERR_URL, json=payload, headers=headers, timeout=65)
+            response = requests.post(FLARESOLVERR_URL, json=payload, headers=headers, timeout=125)
             resp_data = response.json()
             
             if resp_data.get("status") == "ok":

@@ -6,6 +6,10 @@ services:
       TZ: Asia/Shanghai
       # 已有 FlareSolverr 服务的话取消注释并填写地址
       # FLARESOLVERR_URL: http://your_server:8191
+      
+      # 浏览器初始化失败时尝试打开此选项，与下面的 chrome 服务配合使用
+      # REMOTE_SELENIUM_URL: http://chrome:4444/wd/hub
+      
       # 填写代理如果需要的话
       # HTTP_PROXY: http://your_http_proxy:proxy_port
       # HTTPS_PROXY: http://your_https_proxy:proxy_port
@@ -30,3 +34,13 @@ services:
       - TZ=Asia/Shanghai
     image: ghcr.io/flaresolverr/flaresolverr:latest
     restart: unless-stopped
+
+  # 浏览器无法初始化成功的打开下面的注释，使用外部浏览器
+  # chrome:
+  #   image: selenium/standalone-chrome:latest
+  #   container_name: chrome-standalone
+  #   shm_size: "2gb" # 同样需要给够内存
+  #   restart: unless-stopped
+  #   environment:
+  #     - SE_NODE_MAX_SESSIONS=2
+  #     - SE_NODE_OVERRIDE_MAX_SESSIONS=true

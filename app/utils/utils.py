@@ -2,7 +2,24 @@
 import re
 import init
 from datetime import datetime, timedelta, date
+import yaml
+import os
 
+def read_yaml_file(yaml_path):
+    # 获取yaml文件名称
+    try:
+        # 获取yaml文件路径
+        if os.path.exists(yaml_path):
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                cfg = f.read()
+                f.close()
+            yaml_conf = yaml.load(cfg, Loader=yaml.FullLoader)
+            return yaml_conf
+        else:
+           return False
+    except Exception as e:
+        init.logger.warn(f"配置文件[{yaml_path}]格式有误，请检查!")
+        return False
 
 
 def random_waite(min=2, max=15):
@@ -38,3 +55,10 @@ def get_magnet_hash(magnet):
     if match:
         return match.group(1).upper()
     return None
+
+
+def check_magnet(magnet):
+    pattern = r"^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.*)?$"
+    if not isinstance(magnet, str) or not magnet.startswith('magnet:'):
+        return False
+    return re.fullmatch(pattern, magnet) is not None

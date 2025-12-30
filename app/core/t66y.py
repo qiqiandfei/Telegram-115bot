@@ -23,6 +23,7 @@ from telegram.helpers import escape_markdown
 import html
 import asyncio
 import time
+from app.utils.message_queue import add_task_to_queue
 from selenium.webdriver.common.by import By
 
 def _extract_magnet_sync(driver, url):
@@ -203,6 +204,7 @@ async def _start_t66y_rss_async():
     t66y = init.bot_config.get("rsshub", {}).get("t66y", None)
     if not t66y or not t66y.get("enable", False):
         init.logger.info("t66y RSS订阅未配置，跳过RSS订阅任务")
+        add_task_to_queue(init.bot_config['allowed_user'], None, f"⚠️ t66y RSS订阅未配置，跳过RSS订阅任务")
         return
 
     browser = None
@@ -214,7 +216,8 @@ async def _start_t66y_rss_async():
         await browser.init_browser()
         
         if not browser.driver:
-             init.logger.error("浏览器初始化失败，无法继续任务")
+             init.logger.error("浏览器初始化失败，无法继续任务！")
+             add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败，无法继续任务！")
              return
 
         for section in t66y.get("sections", []):
@@ -236,6 +239,7 @@ async def _start_t66y_rss_async():
         t66y_offline()
     except Exception as e:
         init.logger.error(f"处理t66y RSS订阅时出错: {e}")
+        add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 处理t66y RSS订阅时出错: {e}")
     finally:
         if browser:
             await browser.close()
@@ -282,12 +286,12 @@ async def pares_t66y_rss(rss_data, section_name, save_path, browser):
             safe_pub_url = escape_markdown(pub_url, version=2)
 
             movie_info = f"""
-                            **t66y订阅通知**
-                            
-                            **标题：**    {safe_title}
-                            **发布日期：**    {safe_date}
-                            **下载链接：**    `{safe_magnet}`
-                            **发布链接：**    [点击查看详情]({safe_pub_url})
+**t66y订阅通知**
+
+**标题：**    {safe_title}
+**发布日期：**    {safe_date}
+**下载链接：**    `{safe_magnet}`
+**发布链接：**    [点击查看详情]({safe_pub_url})
                            """
             
             result = {

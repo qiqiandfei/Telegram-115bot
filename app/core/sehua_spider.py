@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from urllib.parse import urlparse
 from app.core.offline_task_retry import sehua_offline
 from app.core.selenium_browser import SeleniumBrowser
+from app.utils.utils import get_magnet_hash, read_yaml_file, check_magnet
 import asyncio
 import requests
 
@@ -436,7 +437,7 @@ async def get_section_update(section_name, date):
                     if html and len(html) > 1000:
                         # 验证页面是否包含预期的内容结构
                         if 'normalthread_' in html or 'postlist' in html:
-                            topics = parse_section_page(html, date, page_num)
+                            topics = parse_section_page(html, date, page_num, section_name)
                             if topics:
                                 init.logger.info(f"其中 {len(topics)} 个今日话题")
                                 all_data_today.extend(topics)
@@ -469,7 +470,7 @@ async def get_section_update(section_name, date):
     return all_data_today
 
 
-def parse_section_page(html_content, date, page_num):
+def parse_section_page(html_content, date, page_num, section_name):
     topics = []
     soup = BeautifulSoup(html_content, "html.parser")
     
@@ -503,6 +504,11 @@ def parse_section_page(html_content, date, page_num):
         
         if not topic_date or topic_date != date:
             continue  # 跳过非当日的帖子
+            
+        # 提前过滤标题
+        if not is_title_allowed(section_name, title):
+            init.logger.debug(f"标题[{title}]不满足[{section_name}]板块的规则，跳过!")
+            continue
               
         # 提取链接（从标题的a标签的href属性）
         link = title_link['href'].replace('&amp;', '&') if title_link else ""
@@ -661,21 +667,43 @@ def save_sehua2db(results):
         init.logger.error(f"保存涩花数据到数据库时出错: {str(e)}")
         
         
+def is_title_allowed(section_name, title):
+    yaml_path = init.STRATEGY_FILE
+    strategy_config = read_yaml_file(yaml_path)
+    if not strategy_config:
+        return True
+    
+    if strategy_config:
+        title_regular = strategy_config.get('title_regular', [])
+        if not title_regular:
+            return True
+        
+        section_has_rules = False
+        for item in title_regular:
+            if item.get('section_name', '') == section_name:
+                section_has_rules = True
+                break
+        
+        if not section_has_rules:
+            return True
+        
+        for item in title_regular:
+            if item.get('section_name', '') == section_name:
+                pattern = item.get('pattern', '')
+                if not pattern:
+                    continue
+                if re.search(pattern, title, re.IGNORECASE):
+                    return True
+        
+        return False
+        
+    return True
+
+
 def match_strategy(result):
     yaml_path = init.STRATEGY_FILE
-    strategy_config = None
-    # 获取yaml文件名称
-    try:
-        # 获取yaml文件路径
-        if os.path.exists(yaml_path):
-            with open(yaml_path, 'r', encoding='utf-8') as f:
-                cfg = f.read()
-                f.close()
-            strategy_config = yaml.load(cfg, Loader=yaml.FullLoader)
-        else:
-           return True, result.get('save_path')
-    except Exception as e:
-        init.logger.warn(f"配置文件[{yaml_path}]格式有误，请检查!")
+    strategy_config = read_yaml_file(yaml_path)
+    if not strategy_config:
         return True, result.get('save_path')
     
     if strategy_config:
@@ -709,16 +737,8 @@ def match_strategy(result):
                     specify_path = item.get('specify_save_path') or result.get('save_path')
                     return True, specify_path
         
-        # 有配置规则但都不匹配，放弃入库
-        init.logger.info(f"标题[{result.get('title', '')}]未匹配到[{current_section}]板块的任何规则，自动放弃入库!")
-        # 删除图片
-        if result.get('image_path') and os.path.exists(result.get('image_path')):
-            try:
-                os.remove(result.get('image_path'))
-                init.logger.debug(f"已删除图片: {result.get('image_path')}")
-            except Exception as e:
-                init.logger.warn(f"删除图片失败: {str(e)}")
-        return False, ""
+        # 有配置规则但都不匹配（理论上不应发生，因为已提前过滤），回退到默认路径
+        return True, result.get('save_path')
         
     # 空的配置等同于无效策略，默认全部通过
     return True, result.get('save_path')
@@ -731,23 +751,6 @@ def get_sehua_save_path(_section_name):
         if section_name == _section_name:
             return section.get('save_path', f'/AV/涩花/{section_name}')
     return f'/AV/涩花/{_section_name}'
-
-def get_magnet_hash(magnet):
-    if not magnet:
-        return None
-    # 匹配 hex (40) 或 base32 (32)
-    pattern = r"urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})"
-    match = re.search(pattern, magnet, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    return None
-
-def check_magnet(magnet):
-    pattern = r"^magnet:\?xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&.*)?$"
-    if not isinstance(magnet, str) or not magnet.startswith('magnet:'):
-        return False
-    return re.fullmatch(pattern, magnet) is not None
-
 
 
 if __name__ == "__main__":

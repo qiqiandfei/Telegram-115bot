@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 import init
-from datetime import datetime
+import datetime
 import threading
 
 
@@ -10,9 +10,10 @@ async def crawl_sehua(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not init.check_user(usr_id):
         await update.message.reply_text("⚠️ 对不起，您无权使用115机器人！")
         return
-    date = datetime.now().strftime("%Y-%m-%d")
-    context.user_data["date"] = date  # 默认使用当天日期
-    init.logger.info("涩花默认爬取当日数据")
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    date = yesterday.strftime("%Y-%m-%d")
+    context.user_data["date"] = date  # 默认使用昨日日期
+    init.logger.info("涩花默认爬取昨日数据")
     
     if init.CRAWL_SEHUA_STATUS == 1:
         await update.message.reply_text("⚠️ 涩花爬取任务正在进行中，请稍后再试！")
@@ -51,13 +52,14 @@ async def crawl_jav(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.args:
         date = " ".join(context.args)
-        date_obj = datetime.strptime(date, "%Y%m%d")
+        date_obj = datetime.datetime.strptime(date, "%Y%m%d")
         formatted_date = date_obj.strftime("%Y-%m-%d")
         context.user_data["date"] = formatted_date  # 将用户参数存储起来
     else:
-        date = datetime.now().strftime("%Y-%m-%d")
-        context.user_data["date"] = date  # 默认使用当天日期
-        init.logger.info("用户没有输入日期参数，默认爬取当日数据")
+        yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+        date = yesterday.strftime("%Y-%m-%d")
+        context.user_data["date"] = date  # 默认使用昨日日期
+        init.logger.info("用户没有输入日期参数，默认爬取昨日数据")
         
     if init.CRAWL_JAV_STATUS == 1:
         await update.message.reply_text("⚠️ javbee爬取任务正在进行中，请稍后再试！")

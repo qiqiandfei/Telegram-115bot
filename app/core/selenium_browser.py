@@ -1,3 +1,4 @@
+
 import asyncio
 import re
 import time
@@ -9,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium import webdriver
 import init
 from seleniumbase import SB
+import subprocess
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -29,6 +31,17 @@ class SeleniumBrowser:
         await asyncio.get_running_loop().run_in_executor(self.executor, self._init_driver)
 
     def _init_driver(self):
+        # 保留 sehua 目录 (用于存放持久化数据)，删除其他所有内容
+        try:
+            if os.path.exists(init.TEMP):
+                init.logger.info(f"正在清理临时目录: {init.TEMP}")
+                subprocess.run(
+                    f"rm -rf {os.path.join(init.TEMP, 'chrome_user_data')}", 
+                    shell=True, 
+                    stderr=subprocess.DEVNULL
+                )
+        except Exception as e:
+            init.logger.warn(f"清理临时目录失败: {e}")
         # 0. 优先尝试远程 WebDriver (如果配置了)
         if REMOTE_SELENIUM_URL:
             try:
@@ -56,15 +69,18 @@ class SeleniumBrowser:
                 pass
 
         # 基础参数
-        # 添加 --disable-setuid-sandbox 和 --no-zygote 以提高在受限环境(如群晖Docker)下的兼容性
-        base_args = "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars --disable-setuid-sandbox --no-zygote"
+        # 针对 Chrome 143+ 的本地初始化修复:
+        # 1. 显式指定调试端口
+        # 2. 显式指定用户数据目录，防止权限问题
+        user_data_dir = os.path.join(init.TEMP, "chrome_user_data")
+        base_args = f"--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-blink-features=AutomationControlled --disable-infobars --remote-debugging-port=9222 --user-data-dir={user_data_dir}"
 
         # 尝试列表: 
-        # 1. headless2=True (新版无头, UC模式)
-        # 2. headless=True (标准无头, UC模式)
+        # 1. headless2=True (新版无头)
+        # 2. headless=True (旧版无头)
         modes = [
-            {"uc": True, "headless2": True, "name": "uc_headless2", "chromium_arg": base_args},
-            {"uc": True, "headless": True, "name": "uc_headless", "chromium_arg": base_args}
+            {"headless2": True, "name": "uc_headless_new"},
+            {"headless": True, "name": "uc_headless_legacy"},
         ]
 
         for mode in modes:
@@ -74,7 +90,9 @@ class SeleniumBrowser:
                 
                 # 构造配置
                 config = {
+                    "uc": True,
                     "agent": init.USER_AGENT,
+                    "chromium_arg": base_args
                 }
                 config.update(mode)
                 
@@ -268,4 +286,3 @@ class SeleniumBrowser:
     async def run_with_driver(self, func, *args):
         """在 executor 中运行同步函数，并将 driver 作为第一个参数传入"""
         return await asyncio.get_running_loop().run_in_executor(self.executor, func, self.driver, *args)
-

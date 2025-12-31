@@ -16,15 +16,48 @@ from app.core.t66y import start_t66y_rss
 
 scheduler = BlockingScheduler()
 
+def get_sync_time(category):
+    sync_time = {'hour': 3, 'minute': 0}  # 默认时间03:00
+    if category == "sehua":
+        # 使用 or {} 处理配置项为 None 的情况，避免 AttributeError
+        sehua_config = init.bot_config.get("sehua_spider") or {}
+        sehua_sync_time = sehua_config.get("sync_time", "03:00")
+        try:
+            hour, minute = map(int, sehua_sync_time.split(":"))
+            sync_time['hour'] = hour
+            sync_time['minute'] = minute
+        except Exception as e:
+            init.logger.warn(f"解析涩花同步时间失败: {e}，将使用默认时间 03:00")
+        return sync_time
+    
+    if category == "jav":
+        # 使用 or {} 处理配置项为 None 的情况，避免 AttributeError
+        jav_config = init.bot_config.get("av_daily_update") or {}
+        jav_sync_time = jav_config.get("sync_time", "20:00")
+        try:
+            hour, minute = map(int, jav_sync_time.split(":"))
+            sync_time['hour'] = hour
+            sync_time['minute'] = minute
+        except Exception as e:
+            init.logger.warn(f"解析JAV同步时间失败: {e}，将使用默认时间 20:00")
+        return sync_time
+
+    return sync_time
+
+sehua_sync_time = get_sync_time("sehua")
+jav_sync_time = get_sync_time("jav")
+
 # 定义任务列表
 tasks = [
     {"id": "subscribe_movie_task", "func": schedule_movie, "interval": 4 * 60 * 60, "task_type": "interval"},
-    {"id": "av_daily_update_task", "func": av_daily_update, "hour": 20, "minute": 00, "task_type": "time"},
+    {"id": "av_daily_update_task", "func": av_daily_update, "hour": jav_sync_time.get("hour", 20), "minute": jav_sync_time.get("minute", 0), "task_type": "time"},
     {"id": "offline_task_retry_task", "func": offline_task_retry, "hour": "9,18", "minute": 00, "task_type": "time"},
     {"id": "retry_failed_downloads", "func": try_to_offline2115_again, "interval": 12 * 60 * 60, "task_type": "interval"},
-    {"id": "sehua_spider_task", "func": sehua_spider_start, "hour": 0, "minute": 5, "task_type": "time"}
+    {"id": "sehua_spider_task", "func": sehua_spider_start, "hour": sehua_sync_time.get("hour", 3), "minute": sehua_sync_time.get("minute", 0), "task_type": "time"}
     # {"id": "t66y_rss_task", "func": start_t66y_rss, "hour": 0, "minute": 5, "task_type": "time"},
 ]
+
+
 
 def subscribe_scheduler():
     for task in tasks:

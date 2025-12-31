@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     gnupg \
+    unzip \
     # 核心运行库 (防止 Chrome 启动静默挂起)
     libasound2 \
     libgbm1 \
@@ -23,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
         echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && apt-get install -y google-chrome-stable; \
+        apt-get update && apt-get install -y google-chrome-stable=143.0.7499.169-1; \
     else \
         # 非 amd64 环境安装 chromium
         apt-get update && apt-get install -y chromium chromium-driver; \
@@ -36,7 +37,8 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip --no-cache-dir && \
     pip install -r requirements.txt --no-cache-dir && \
-    seleniumbase install chromedriver
+    # 安装与 Chrome 143 匹配的 driver
+    seleniumbase install chromedriver 143.0.7499.169
 
 ADD ./app .
 

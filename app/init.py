@@ -72,6 +72,7 @@ CONFIG = "/config"
 TEMP = "/tmp"
 IMAGE_PATH = "/app/images"
 
+# 匹配 Dockerfile 中锁定的 Chrome 143 版本
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
 
 # 调试用
@@ -205,30 +206,29 @@ def initialize_tg_usr_client():
             'api_id': api_id,
             'api_hash': api_hash
         }
-        PROXY = bot_config.get('tg_proxy', None)
-        # 创建客户端实例
-        if PROXY:
+        # 使用环境变量的代理设置
+        http_proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+        if http_proxy:
             import socks
-            proxy_type_map = {
-                'socks5': socks.SOCKS5,
-                'socks4': socks.SOCKS4,
-                'http': socks.HTTP
-            }
+            from urllib.parse import urlparse
             
-            p_type = PROXY.get('proxy_type', 'socks5').lower()
-            if p_type not in proxy_type_map:
-                logger.error(f"错误: 不支持的代理类型 '{p_type}'")
-                return
+            # 确保有 scheme，否则 urlparse 可能解析不准确
+            target_proxy = http_proxy
+            if "://" not in target_proxy:
+                target_proxy = f"http://{target_proxy}"
+            
+            try:
+                parsed = urlparse(target_proxy)
+                if parsed.hostname and parsed.port:
+                    # 支持用户名和密码认证
+                    client_params['proxy'] = (socks.HTTP, parsed.hostname, parsed.port, True, parsed.username, parsed.password)
+                    auth_info = f" (user: {parsed.username})" if parsed.username else ""
+                    logger.info(f"Telegram 已启用HTTP代理: {parsed.hostname}:{parsed.port}{auth_info}")
+                else:
+                    logger.warn(f"环境变量代理格式无效: {http_proxy}")
+            except Exception as e:
+                logger.warn(f"解析代理设置失败: {e}")
 
-            client_params['proxy'] = (
-                proxy_type_map[p_type],
-                PROXY['addr'],
-                PROXY['port'],
-                PROXY.get('rdns', True),
-                PROXY.get('username'),
-                PROXY.get('password')
-            )
-            logger.info(f"Telegram 已启用代理: {PROXY['addr']}:{PROXY['port']}")
         tg_user_client = TelegramClient(**client_params)
         logger.info(f"Telegram User Client 初始化成功，session路径: {TG_SESSION_FILE}")
         return True

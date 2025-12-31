@@ -10,15 +10,19 @@ services:
       # 浏览器初始化失败时尝试打开此选项，与下面的 chrome 服务配合使用
       # REMOTE_SELENIUM_URL: http://chrome:4444/wd/hub
       
-      # 填写代理如果需要的话
+      # 填写代理如果需要的话(两个都要填)
+      # 带账号密码格式：http://user:pass@1.2.3.4:7890
+      # 不带账号密码格式：http://1.2.3.4:7890
       # HTTP_PROXY: http://your_http_proxy:proxy_port
       # HTTPS_PROXY: http://your_https_proxy:proxy_port
-      # NO_PROXY: localhost,127.0.0.1,::1  # 根据实际需要添加其他不需代理的地址
+      
+      # 根据实际需要添加其他不需代理的地址
+      # NO_PROXY: localhost,127.0.0.1,::1,chrome
     image: qiqiandfei/115-bot:latest
     # 共享内存大小，防止浏览器崩溃，有条件可以多给点
     shm_size: "2gb"
     # 浏览器初始化失败时尝试打开此选项
-    # privileged: True
+    privileged: True
     restart: unless-stopped
     volumes:
       - /to/your/path/config:/config  # 配置目录
@@ -37,7 +41,7 @@ services:
 
   # 浏览器无法初始化成功的打开下面的注释，使用外部浏览器
   # chrome:
-  #   image: selenium/standalone-chrome:latest
+  #   image: selenium/standalone-chrome:143.0.7499.169-20251212
   #   container_name: chrome-standalone
   #   shm_size: "2gb" # 同样需要给够内存
   #   restart: unless-stopped

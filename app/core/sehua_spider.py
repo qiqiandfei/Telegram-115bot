@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 from app.core.offline_task_retry import sehua_offline
 from app.core.selenium_browser import SeleniumBrowser
 from app.utils.utils import get_magnet_hash, read_yaml_file, check_magnet
+from app.utils.message_queue import add_task_to_queue
 import asyncio
 import requests
 
@@ -143,7 +144,10 @@ def get_section_id(section_name):
         "亚洲无码原创": 36,
         "亚洲有码原创": 37,
         "高清中文字幕": 103,
-        "素人有码": 104
+        "素人有码系列": 104,
+        "4K原版": 151,
+        "VR视频区": 160,
+        "欧美无码": 38
     }
     return section_map.get(section_name, 0)
 
@@ -158,6 +162,7 @@ async def sehua_spider_start_async():
     await browser.init_browser()
     
     if not browser.driver:
+        add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
         return
         
     # 尝试通过 Cloudflare 验证
@@ -172,7 +177,7 @@ async def sehua_spider_start_async():
             init.logger.info(f"开始爬取 {section_name} 分区...")
             await section_spider(section_name, date)
             init.logger.info(f"{section_name} 分区爬取完成")
-            delay = random.uniform(30, 60)
+            delay = random.uniform(5, 10)
             await asyncio.sleep(delay)
     except Exception as e:
         init.logger.warn(f"爬取 {section_name} 分区时发生错误: {str(e)}")
@@ -181,13 +186,14 @@ async def sehua_spider_start_async():
     finally:
         # 关闭全局浏览器
         await browser.close()
+        
+    # 离线到115 (Sync)
+    init.logger.info("开始执行涩花离线任务...")
+    sehua_offline()
 
 def sehua_spider_start():
     try:
         asyncio.run(sehua_spider_start_async())
-        # 离线到115 (Sync)
-        init.logger.info("开始执行涩花离线任务...")
-        sehua_offline()
     except Exception as e:
         init.logger.error(f"涩花爬虫启动失败: {e}")
         
@@ -199,6 +205,8 @@ async def sehua_spider_by_date_async(date):
     await browser.init_browser()
     # 初始化全局浏览器
     if not browser.driver:
+        add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
+        init.CRAWL_SEHUA_STATUS = 0
         return
         
     # 尝试通过 Cloudflare 验证
@@ -211,7 +219,7 @@ async def sehua_spider_by_date_async(date):
             init.logger.info(f"开始爬取 {section_name} 分区...")
             await section_spider(section_name, date)
             init.logger.info(f"{section_name} 分区爬取完成")
-            delay = random.uniform(30, 60)
+            delay = random.uniform(5, 10)
             await asyncio.sleep(delay)
     except Exception as e:
         init.logger.warn(f"爬取 {section_name} 分区时发生错误: {str(e)}")
@@ -220,14 +228,14 @@ async def sehua_spider_by_date_async(date):
     finally:
         # 关闭全局浏览器
         await browser.close()
-        init.CRAWL_SEHUA_STATUS = 0
+    # 离线到115 (Sync)
+    init.logger.info("开始执行涩花离线任务...")
+    sehua_offline()
+    init.CRAWL_SEHUA_STATUS = 0
 
 def sehua_spider_by_date(date):
     try:
         asyncio.run(sehua_spider_by_date_async(date))
-        # 离线到115 (Sync)
-        init.logger.info("开始执行涩花离线任务...")
-        sehua_offline()
     except Exception as e:
         init.logger.error(f"涩花爬虫(按日期)启动失败: {e}")
         init.CRAWL_SEHUA_STATUS = 0
@@ -300,7 +308,7 @@ async def section_spider(section_name, date):
                 
             # 每处理5个页面后增加额外延迟
             if (i + 1) % 5 == 0:
-                extra_delay = random.uniform(10, 20)
+                extra_delay = random.uniform(5, 10)
                 init.logger.info(f"已处理 {i+1} 个页面，休息 {extra_delay:.1f} 秒...")
                 await asyncio.sleep(extra_delay)
         

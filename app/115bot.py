@@ -25,7 +25,7 @@ from app.handlers.crawl_handler import register_crawl_handlers
 
 
 def get_version(md_format=False):
-    version = "v3.3.3"
+    version = "v3.3.4"
     if md_format:
         return escape_markdown(version, version=2)
     return version

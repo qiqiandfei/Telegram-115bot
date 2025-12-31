@@ -235,15 +235,15 @@ async def _start_t66y_rss_async():
             pares_results.extend(await pares_t66y_rss(rss_data, section.get("name", ""), section.get("save_path", ""), browser))
             # Insert into database
             save2DB_t66y(pares_results)
-        # 离线到115
-        t66y_offline()
     except Exception as e:
         init.logger.error(f"处理t66y RSS订阅时出错: {e}")
         add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 处理t66y RSS订阅时出错: {e}")
     finally:
         if browser:
             await browser.close()
-        init.RSS_T66Y_STATUS = 0
+    # 离线到115
+    t66y_offline()
+    init.RSS_T66Y_STATUS = 0
 
 def start_t66y_rss():
     asyncio.run(_start_t66y_rss_async())
@@ -280,6 +280,7 @@ async def pares_t66y_rss(rss_data, section_name, save_path, browser):
             
             magnet = clean_magnet(magnet)
             
+            safe_section = escape_markdown(section_name, version=2)
             safe_title = escape_markdown(title, version=2)
             safe_date = escape_markdown(str(date_published), version=2)
             safe_magnet = escape_markdown(magnet, version=2)
@@ -288,6 +289,7 @@ async def pares_t66y_rss(rss_data, section_name, save_path, browser):
             movie_info = f"""
 **t66y订阅通知**
 
+**版块：**    {safe_section}
 **标题：**    {safe_title}
 **发布日期：**    {safe_date}
 **下载链接：**    `{safe_magnet}`

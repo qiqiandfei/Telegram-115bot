@@ -24,21 +24,6 @@ bot_name: "@your_bot_name"
 tg_api_id: your_tg_api_id
 tg_api_hash: your_tg_api_hash
 
-# 如果tg总是连不上，请为Telegram单独设置代理
-#tg_proxy:
-#  # 支持 socks5, socks4, http
-#  proxy_type: socks5
-#  # 代理地址
-#  addr: 127.0.0.1
-#  # 代理端口
-#  port: 7890
-#  # 用户名 (如果有)
-#  username: 
-#  # 密码 (如果有)
-#  password: 
-#  # 是否在代理端解析域名 (建议 True)
-#  rdns: true
-
 ############################################115开放平台##################################
 # 115_app_id 
 # 申请地址https://open.115.com/
@@ -62,19 +47,22 @@ clean_policy:
 # 设置分类文件夹
 # 分类文件夹设置只针对离线任务，离线下载完成后，会弹出需要移动到的分类文件夹，可以设置多个
 category_folder:
-  # 电影下的分类目录
+  # 电影下的分类目录，不能修改
   - name: movies
+    # 选择保存目录的第一级分类目录，不建议修改
     display_name: 电影
+    # 一级分类目录(电影)下的二级分类，可按需修改或添加
     path_map:
-      # 显示名称
+        # 显示名称，可按需修改
       - name: 外语电影
-      # 对应115上的完整路径
+        # 对应115上的完整路径，可以按需修改
         path: /影视/电影/外语电影
       - name: 华语电影
         path: /影视/电影/华语电影
       - name: 动画电影
         path: /影视/电影/动画电影
   # AV
+  # 结构与电影完全一致不再赘述
   - name: av
     display_name: AV
     path_map:
@@ -84,10 +72,12 @@ category_folder:
         path: /AV/无码
 
 #############################################AV日更#######################################
-# 北京时间每天20:00同步最新AV
+# 自动同步最新AV
 av_daily_update:
   # 是否开启日更功能
-  enable: true
+  enable: false
+  # 指定每天的同步时间(24h)建议设置为20:00
+  sync_time: 20:00
   # 离线到115的保存路径
   save_path: /AV/日更
   # 通知我
@@ -99,12 +89,16 @@ av_daily_update:
 # 每天凌晨开启爬虫，爬取前一天的数据并离线到115
 sehua_spider:
   # 是否开启涩花爬虫
-  enable: true
+  enable: false
+  # 指定每天的同步时间(24h)建议设置为03:00
+  # 默认同步前一天的数据，建议3点开更，避开凌晨高峰
+  # 如频繁触发CF盾，建议将时间改成白天，白天成功率高
+  sync_time: 03:00
   # BaseUrl
   # 涩花地址，建议填临时地址，速度快~
   # 留空默认永久地址 www.sehuatang.net; www.sehuatang.org
   base_url: wtzs1.q28qe.net
-  # 支持爬取版块["国产原创", "亚洲无码原创", "亚洲有码原创", "高清中文字幕"]
+  # 支持爬取版块["国产原创", "亚洲无码原创", "亚洲有码原创", "高清中文字幕", "素人有码系列","4K原版","VR视频区","欧美无码"]
   # 至少填一个
   sections:
     - name: 国产原创
@@ -115,8 +109,15 @@ sehua_spider:
 #      save_path: /AV/涩花/亚洲有码原创
 #    - name: 高清中文字幕
 #      save_path: /AV/涩花/高清中文字幕
-#     - name: 素人有码
-#       save_path: /AV/涩花/素人有码
+#    - name: 素人有码系列
+#      save_path: /AV/涩花/素人有码
+#    - name: 4K原版
+#      save_path: /AV/涩花/4K原版
+#    - name: VR视频区
+#      save_path: /AV/涩花/VR视频区
+#    - name: 欧美无码
+#      save_path: /AV/涩花/欧美无码
+
   # 通知我
   notify_me: true
   # 按年月整理，开启后会自动在保存目录创建年/月的文件夹
@@ -125,7 +126,7 @@ sehua_spider:
 #############################################软链接设置####################################
 # strm可以极大地减小请求115的次数避免风控，建议开启
 # create_strm只针对通过“dl”命令下载的资源有效，不建议使用“dl”下载AV资源
-# AV资源建议使用“av”命令下载，并搭配第三方削刮工具自动生成软链，体验更好
+# AV资源建议使用“av”命令下载，并搭配第三方削刮工具(MDC-NG)自动生成软链，体验更好
 # 是否创建软链（非302）
 create_strm: true
 # CloudDrive2 挂载115的根目录
@@ -173,12 +174,11 @@ aria2:
   rpc_secret: your_aria2_rpc_secret
   # 下载目录 (Aari2容器中的下载位置)
   download_path: "/Downloads"
-
-##########################################AI#######################################
+  ##########################################AI#######################################
 # AI支持
 ai:
   # 请求地址
-  api_url: https://api.siliconflow.cn/v1/messages
+  api_url: https://api.siliconflow.cn/v1
   # api_key
   api_key: sk-xxxxxxxxxxxxxxxxxxx
   # 模型

@@ -517,7 +517,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         
         # 通知Emby扫库
-        is_noticed = notice_emby_scan_library(selected_path)
+        is_noticed = notice_emby_scan_library(new_final_path)
         if is_noticed:
             message = f"✅ 重命名成功：`{new_resource_name}`\n\n**👻 已通知Emby扫库，请稍后确认！**"
         else:
@@ -595,7 +595,6 @@ def push2aria2(new_final_path, cover_url, message, user_id):
 def register_download_handlers(application):
     # 命令形式的下载交互
     download_command_handler = ConversationHandler(
-        # entry_points=[CommandHandler("dl", start_d_command)],
          entry_points=[
             MessageHandler(
                 filters.TEXT & filters.Regex(r'^(magnet:|ed2k://|ED2K://|thunder://|http://|https://)(?!.*\n).+$'),

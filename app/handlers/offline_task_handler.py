@@ -105,7 +105,7 @@ def try_to_offline2115_again():
                         init.logger.info(f"订阅影片[{title}]已手动下载成功！")
                     
                     # 通知Emby扫库
-                    notice_emby_scan_library(save_path)
+                    notice_emby_scan_library(new_final_path)
                     # 避免link过长
                     if len(link) > 600:
                         link = link[:600] + "..."

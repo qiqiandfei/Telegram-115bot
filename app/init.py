@@ -51,11 +51,12 @@ aria2_client = None
 # 爬取状态
 CRAWL_SEHUA_STATUS = 0  # 涩花爬取状态
 CRAWL_JAV_STATUS = 0    # javbee爬取状态
-RSS_T66Y_STATUS = 0  # t66y订阅状态
 
 
 # yaml配置文件
 CONFIG_FILE = "/config/config.yaml"
+# yaml配置文件示例
+CONFIG_FILE_EXAMPLE = "/app/config.yaml.example"
 # 抓取策略文件
 STRATEGY_FILE = "/config/crawling_strategy.yaml"
 # SessionFile
@@ -120,7 +121,7 @@ def load_yaml_config():
     读取配置文件
     :return:
     """
-    global bot_config, CONFIG_FILE
+    global bot_config, CONFIG_FILE, CONFIG_FILE_EXAMPLE, APP
     yaml_path = CONFIG_FILE
     # 获取yaml文件名称
     try:
@@ -138,6 +139,7 @@ def load_yaml_config():
                 os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
                 # 复制示例配置文件
                 shutil.copy2(example_config_path, yaml_path)
+                shutil.copy2(example_config_path, CONFIG_FILE_EXAMPLE)
                 print(f"已复制示例配置文件到 {yaml_path}")
                 # 重新读取配置文件
                 with open(yaml_path, 'r', encoding='utf-8') as f:
@@ -428,7 +430,26 @@ def init_db():
             magnet TEXT, -- 磁力链接
             poster_url TEXT, -- 封面url
             publish_date DATE, -- 发布日期
-            pub_url TEXT, -- 资源链接s
+            pub_url TEXT, -- 资源链接
+            save_path TEXT, -- 保存路径
+            is_download TINYINT DEFAULT 0, -- 是否下载, 0或1, 默认0
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间，默认当前时间
+        );
+        '''
+        sqlite.execute_sql(create_table_query)
+        
+        create_table_query = '''
+        CREATE TABLE IF NOT EXISTS javbus (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            av_number TEXT, -- 番号
+            actress TEXT, -- 演员，多个演员逗号分隔
+            sub_category TEXT, -- 订阅类别
+            movie_info TEXT, -- 影片信息
+            title TEXT, -- 标题
+            magnet TEXT, -- 磁力链接
+            poster_url TEXT, -- 封面url
+            publish_date DATE, -- 发布日期
+            pub_url TEXT, -- 资源链接
             save_path TEXT, -- 保存路径
             is_download TINYINT DEFAULT 0, -- 是否下载, 0或1, 默认0
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间，默认当前时间

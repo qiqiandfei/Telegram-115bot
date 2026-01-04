@@ -17,7 +17,7 @@ services:
       # HTTPS_PROXY: http://your_https_proxy:proxy_port
       
       # 根据实际需要添加其他不需代理的地址
-      # NO_PROXY: localhost,127.0.0.1,::1,chrome
+      # NO_PROXY: localhost,127.0.0.1,::1,chrome,flaresolverr
     image: qiqiandfei/115-bot:latest
     # 共享内存大小，防止浏览器崩溃，有条件可以多给点
     shm_size: "2gb"

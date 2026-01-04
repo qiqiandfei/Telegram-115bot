@@ -16,10 +16,10 @@ import re
 import json
 import requests
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
 from app.core.offline_task_retry import t66y_offline
 from app.core.selenium_browser import SeleniumBrowser
 from telegram.helpers import escape_markdown
+from app.utils.utils import clean_magnet
 import html
 import asyncio
 import time
@@ -37,6 +37,36 @@ def _extract_magnet_sync(driver, url):
     try:
         # rmdown 特殊处理
         if "rmdown.com" in url:
+            # 策略1: 优先尝试从 URL 参数中提取 hash (最快且最稳定)
+            try:
+                from urllib.parse import urlparse, parse_qs
+                # 检查传入的 url
+                target_urls = [url]
+                # 也检查当前浏览器地址，防止有跳转
+                if driver.current_url != url:
+                    target_urls.append(driver.current_url)
+                
+                for target_url in target_urls:
+                    parsed_url = urlparse(target_url)
+                    query_params = parse_qs(parsed_url.query)
+                    hash_values = query_params.get('hash', [])
+                    if hash_values:
+                        magnet_hash = hash_values[0]
+                        
+                        # rmdown 的 hash 可能是 43 位（带3位前缀）或 40 位（纯hash）
+                        # 例如: 25367311d70a48563c900138f83cf3f3c3b08f12147 -> 67311d70a48563c900138f83cf3f3c3b08f12147
+                        if len(magnet_hash) == 43:
+                            magnet_hash = magnet_hash[3:]
+                            
+                        # 简单的长度校验，SHA1通常是40位
+                        if len(magnet_hash) == 40:
+                            magnet = f"magnet:?xt=urn:btih:{magnet_hash.upper()}"
+                            init.logger.info(f"成功从URL参数提取磁力链接: {magnet}")
+                            return magnet
+            except Exception as e:
+                init.logger.warn(f"从URL提取hash失败: {e}")
+
+            # 策略2: 模拟点击复制 (作为后备)
             try:
                 # 尝试授予剪贴板权限
                 try:
@@ -127,11 +157,28 @@ async def fetch_t66y_magnet(browser, url):
 def parse_t66y_html(html_content):
     soup = BeautifulSoup(html_content, "html.parser")
     
-    # 1. Extract Poster (First Image)
+    # 1. Extract Poster
     poster_url = ""
-    img_tag = soup.find("img")
-    if img_tag:
-        poster_url = img_tag.get("src", "")
+    
+    # 策略：通过关键词定位正文，获取关键词后的第一张图片，以跳过顶部广告
+    keywords = ["影片", "文件", "名稱", "名称", "标题", "標題", "作品"]
+    start_node = None
+    
+    for keyword in keywords:
+        start_node = soup.find(string=re.compile(keyword))
+        if start_node:
+            break
+            
+    if start_node:
+        img_tag = start_node.find_next("img")
+        if img_tag:
+            poster_url = img_tag.get("src", "")
+
+    # Fallback: 如果没找到，还是尝试获取第一张图片
+    if not poster_url:
+        img_tag = soup.find("img")
+        if img_tag:
+            poster_url = img_tag.get("src", "")
         
     # 2. Extract Magnet
     magnet = ""
@@ -165,24 +212,7 @@ def parse_t66y_html(html_content):
         "fetch_url": last_link if not magnet and 'last_link' in locals() else ""
     }
 
-def clean_magnet(magnet_link):
-    """
-    Clean magnet link, remove trackers and other parameters, keep only xt.
-    """
-    if not magnet_link:
-        return ""
-    try:
-        parsed = urlparse(magnet_link)
-        if parsed.scheme != 'magnet':
-            return magnet_link
-        
-        params = parse_qs(parsed.query)
-        xt = params.get('xt', [])
-        if xt:
-            return f"magnet:?xt={xt[0]}"
-    except:
-        pass
-    return magnet_link
+
 
 
 
@@ -199,16 +229,9 @@ def get_section_id(section_name):
     return section_map.get(section_name, 0)
 
 
-async def _start_t66y_rss_async():
+async def start_t66y_rss_async(section_name):
     
-    t66y = init.bot_config.get("rsshub", {}).get("t66y", None)
-    if not t66y or not t66y.get("enable", False):
-        init.logger.info("t66y RSS订阅未配置，跳过RSS订阅任务")
-        add_task_to_queue(init.bot_config['allowed_user'], None, f"⚠️ t66y RSS订阅未配置，跳过RSS订阅任务")
-        return
-
     browser = None
-    
     try:
         # Initialize browser
         rss_host = init.bot_config.get('rsshub', {}).get('rss_host', '')
@@ -219,14 +242,18 @@ async def _start_t66y_rss_async():
              init.logger.error("浏览器初始化失败，无法继续任务！")
              add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败，无法继续任务！")
              return
+         
+        t66y = init.bot_config.get("rsshub", {}).get("t66y", {})
 
         for section in t66y.get("sections", []):
+            if section_name and section.get("name", "") != section_name:
+                continue
             section_id = get_section_id(section.get("name", ""))
             if section_id == 0:
                 init.logger.warning(f"未知的t66y版块名称: {section.get('name', '')}，跳过该版块的RSS订阅")
                 continue
-            rss_url = f"{rss_host}/t66y/{section_id}/today?format=json"
-            response = requests.get(rss_url, timeout=30)
+            rss_url = f"{rss_host.rstrip('/')}/t66y/{section_id}/today?format=json"
+            response = requests.get(rss_url, timeout=init.bot_config.get("rsshub", {}).get("t66y", {}).get("timeout", 60))
             if response.status_code != 200:
                 init.logger.error(f"无法获取t66y RSS订阅，HTTP状态码: {response.status_code}")
                 continue
@@ -243,10 +270,8 @@ async def _start_t66y_rss_async():
             await browser.close()
     # 离线到115
     t66y_offline()
-    init.RSS_T66Y_STATUS = 0
 
-def start_t66y_rss():
-    asyncio.run(_start_t66y_rss_async())
+    
 
 async def pares_t66y_rss(rss_data, section_name, save_path, browser):
     items = rss_data.get("items", [])
@@ -421,4 +446,3 @@ def match_strategy(result):
 if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
-    start_t66y_rss()

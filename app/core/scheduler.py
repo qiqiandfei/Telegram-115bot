@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 import init
@@ -12,7 +11,6 @@ from app.core.av_daily_update import av_daily_update
 from app.handlers.offline_task_handler import try_to_offline2115_again
 from app.core.sehua_spider import sehua_spider_start
 from app.core.offline_task_retry import offline_task_retry
-from app.core.t66y import start_t66y_rss
 
 scheduler = BlockingScheduler()
 
@@ -44,22 +42,27 @@ def get_sync_time(category):
 
     return sync_time
 
-sehua_sync_time = get_sync_time("sehua")
-jav_sync_time = get_sync_time("jav")
-
 # 定义任务列表
-tasks = [
-    {"id": "subscribe_movie_task", "func": schedule_movie, "interval": 4 * 60 * 60, "task_type": "interval"},
-    {"id": "av_daily_update_task", "func": av_daily_update, "hour": jav_sync_time.get("hour", 20), "minute": jav_sync_time.get("minute", 0), "task_type": "time"},
-    {"id": "offline_task_retry_task", "func": offline_task_retry, "hour": "9,18", "minute": 00, "task_type": "time"},
-    {"id": "retry_failed_downloads", "func": try_to_offline2115_again, "interval": 12 * 60 * 60, "task_type": "interval"},
-    {"id": "sehua_spider_task", "func": sehua_spider_start, "hour": sehua_sync_time.get("hour", 3), "minute": sehua_sync_time.get("minute", 0), "task_type": "time"}
-    # {"id": "t66y_rss_task", "func": start_t66y_rss, "hour": 0, "minute": 5, "task_type": "time"},
-]
+tasks = []
 
+def init_tasks():
+    global tasks
+    sehua_sync_time = get_sync_time("sehua")
+    jav_sync_time = get_sync_time("jav")
+
+    tasks = [
+        {"id": "subscribe_movie_task", "func": schedule_movie, "interval": 4 * 60 * 60, "task_type": "interval"},
+        {"id": "av_daily_update_task", "func": av_daily_update, "hour": jav_sync_time.get("hour", 20), "minute": jav_sync_time.get("minute", 0), "task_type": "time"},
+        {"id": "offline_task_retry_task", "func": offline_task_retry, "hour": "9,18", "minute": 00, "task_type": "time"},
+        {"id": "retry_failed_downloads", "func": try_to_offline2115_again, "interval": 12 * 60 * 60, "task_type": "interval"},
+        {"id": "sehua_spider_task", "func": sehua_spider_start, "hour": sehua_sync_time.get("hour", 3), "minute": sehua_sync_time.get("minute", 0), "task_type": "time"}
+    ]
 
 
 def subscribe_scheduler():
+    # 初始化任务列表，确保配置已加载
+    init_tasks()
+    
     for task in tasks:
         if not scheduler.get_job(task["id"]):
             if task['task_type'] == 'interval':

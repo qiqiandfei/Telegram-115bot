@@ -221,7 +221,7 @@ def download_from_link(download_url, movie_name, save_path):
                 # 创建软链
                 create_strm_file(f"{save_path}/{movie_name}", file_list)
                 # 通知Emby扫库
-                notice_emby_scan_library(save_path)
+                notice_emby_scan_library(f"{save_path}/{movie_name}")
                 return True
             else:
                 # 下载超时删除任务

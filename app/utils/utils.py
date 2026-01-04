@@ -4,6 +4,7 @@ import init
 from datetime import datetime, timedelta, date
 import yaml
 import os
+from urllib.parse import urlparse, parse_qs
 
 def read_yaml_file(yaml_path):
     # 获取yaml文件名称
@@ -62,3 +63,61 @@ def check_magnet(magnet):
     if not isinstance(magnet, str) or not magnet.startswith('magnet:'):
         return False
     return re.fullmatch(pattern, magnet) is not None
+
+
+def check_input(input_str):
+    """_summary_
+    判断输入字符串的内容
+    纯英文 返回 1
+    纯数字 返回 2
+    纯中文 返回 3
+    纯日文 返回 4
+    中文 + 日文 返回 5
+    英文 + 数字 返回 6
+    其他 返回 0
+    Args:
+        input_str (_type_): _description_
+    """
+    if not input_str:
+        return 0
+        
+    # 纯英文
+    if re.fullmatch(r'[a-zA-Z]+', input_str):
+        return 1
+    # 纯数字
+    elif re.fullmatch(r'[0-9]+', input_str):
+        return 2
+    # 纯中文 (汉字)
+    elif re.fullmatch(r'[\u4e00-\u9fa5]+', input_str):
+        return 3
+    # 纯日文 (平假名/片假名)
+    elif re.fullmatch(r'[\u3040-\u309F\u30A0-\u30FF]+', input_str):
+        return 4
+    # 中文 + 日文
+    elif re.fullmatch(r'[\u4e00-\u9fa5\u3040-\u309F\u30A0-\u30FF]+', input_str):
+        return 5
+    # 英文 + 数字
+    elif re.fullmatch(r'[a-zA-Z0-9]+', input_str):
+        return 6
+    
+    return 0
+
+
+def clean_magnet(magnet_link):
+    """
+    Clean magnet link, remove trackers and other parameters, keep only xt.
+    """
+    if not magnet_link:
+        return ""
+    try:
+        parsed = urlparse(magnet_link)
+        if parsed.scheme != 'magnet':
+            return magnet_link
+        
+        params = parse_qs(parsed.query)
+        xt = params.get('xt', [])
+        if xt:
+            return f"magnet:?xt={xt[0]}"
+    except:
+        pass
+    return magnet_link

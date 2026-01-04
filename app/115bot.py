@@ -22,10 +22,11 @@ from app.handlers.av_download_handler import register_av_download_handlers
 from app.handlers.offline_task_handler import register_offline_task_handlers
 from app.handlers.aria2_handler import register_aria2_handlers
 from app.handlers.crawl_handler import register_crawl_handlers
+from app.handlers.rss_handler import register_rss_handlers
 
 
 def get_version(md_format=False):
-    version = "v3.3.4"
+    version = "v3.3.5"
     if md_format:
         return escape_markdown(version, version=2)
     return version
@@ -42,6 +43,7 @@ def get_help_info():
 <code>/av</code> - <i>下载番号资源 (自动匹配磁力)</i>\n
 <code>/csh</code> - <i>手动爬取涩花数据</i>\n
 <code>/cjav</code> - <i>手动爬取javbee数据</i>\n
+<code>/rss</code> - <i>rss订阅</i>\n
 <code>/sm</code> - 订阅电影\n
 <code>/sync</code> - 同步目录并创建软链\n
 <code>/q</code> - 取消当前会话\n\n
@@ -60,11 +62,15 @@ def get_help_info():
 • 自动检索磁力并离线,默认不生成软链（建议使用削刮工具生成软链）\n
 <u>手动爬取涩花：</u>
 • 输入 <code>"/csh"</code>
-• 基于版块配置，爬取涩花当天数据！\n
+• 基于版块配置，爬取涩花昨日数据！\n
 <u>手动爬取javbee：</u>
 • 输入 <code>"/cjav yyyymmdd"</code>
 • 日期格式为 <code>yyyymmdd</code>，例如：20250808
-• 留空则默认爬取当天数据\n
+• 留空则默认爬取昨日数据\n
+<u>RSS订阅：</u>
+• 输入 <code>"/rss"</code>
+• 将rsshub地址配置到config.yaml中
+• 选择RSS类别并订阅\n
 <u>电影订阅：</u>
 • 输入 <code>"/sm 电影名称"</code>
 • 自动监控资源更新, 发现更新后自动下载\n
@@ -145,6 +151,7 @@ def get_bot_menu():
         BotCommand("av", "指定番号下载"),
         BotCommand("csh", "手动爬取涩花数据"),
         BotCommand("cjav", "手动爬取javbee数据"),
+        BotCommand("rss", "RSS订阅"),
         BotCommand("sm", "订阅电影"),
         BotCommand("sync", "同步指定目录，并创建软链"),
         BotCommand("q", "退出当前会话")]
@@ -224,6 +231,8 @@ if __name__ == '__main__':
     register_aria2_handlers(application)
     # 手动爬虫
     register_crawl_handlers(application)
+    # 注册RSS订阅
+    register_rss_handlers(application)
     # 注册同步
     register_sync_handlers(application)
     # 注册视频

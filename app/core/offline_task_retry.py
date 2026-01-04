@@ -61,6 +61,8 @@ def offline_task_retry():
     av_daily_offline()
     init.logger.info("开始t66y离线任务...")
     t66y_offline()
+    init.logger.info("开始JavBus离线任务...")
+    javbus_offline()
 
 
 def sehua_offline():
@@ -169,7 +171,7 @@ def sehua_offline():
         if domestic_original_success + asia_censored_success + asia_uncensored_success + hd_subtitle_success > 0:
             add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
         else:
-            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/tuiche.jpg", final_message)
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/teacher_pto.jpg", final_message)
     
     # 删除垃圾文件
     current_yearmonth = datetime.now().strftime("%Y%m")
@@ -579,9 +581,9 @@ def t66y_offline():
     if messages:
         final_message = "**t66y离线任务完成情况:**\n" + "\n".join(messages)
         if total_success > 0:
-            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/rss_1024.jpg", final_message)
         else:
-            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/tuiche.jpg", final_message)
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/teacher_pto.jpg", final_message)
             
     # 删除垃圾文件
     current_yearmonth = datetime.now().strftime("%Y%m")
@@ -643,6 +645,107 @@ def t66y_success_proccesser(item, save_path, task):
             add_task_to_queue(init.bot_config['allowed_user'], poster_url, message)
         else:
             push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], poster_url, message)
+
+
+def javbus_offline():
+    save_path_list= []
+    check_results = []
+    images = []
+    # 查询所有未下载的任务
+    sql = "select * from javbus WHERE is_download=0 order by publish_date desc"
+    with SqlLiteLib() as sqlite:
+        results = sqlite.query_all(sql)
+        if not results:
+            init.logger.info("JavBus没有找到需要离线任务~")
+            return
+        
+        init.logger.info(f"JavBus找到 {len(results)} 个需要离线的任务")
+        check_results.extend(results)
+        
+        # 分批处理
+        offline_groups = create_offline_group_by_save_path(results)
+        if offline_groups:
+            for save_path, batches in offline_groups.items():
+                if save_path not in save_path_list:
+                    save_path_list.append(save_path)
+                for batch_tasks in batches:
+                    task_count = len(batch_tasks.split('\n'))
+                    offline2115(batch_tasks, task_count, save_path)
+        else:
+            init.logger.warn("JavBus离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+            add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png", "JavBus离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
+            return
+
+    # 等待离线完成
+    time.sleep(300)
+
+    # 获取离线任务状态
+    offline_task_status = init.openapi_115.get_offline_tasks()
+    total_success = 0
+    total_offline = len(check_results)
+    for item in check_results:
+        magnet = item['magnet']
+        save_path = item['save_path']
+        image_path = item['poster_url']
+        
+        for task in offline_task_status:
+            if task['url'] == magnet:
+                if task['status'] == 2 and task['percentDone'] == 100:
+                    javbus_success_proccesser(item, save_path, task)
+                    total_success += 1
+                    images.append(image_path)
+                else:
+                    init.logger.warn(f"{item['title']} 离线下载失败或未完成。")
+                    # 删除离线失败的文件
+                    init.openapi_115.del_offline_task(task['info_hash'])
+                break
+    
+    # 等待消息队列处理完成
+    wait_for_message_queue_completion("JavBus")
+    
+    # 生成汇总消息
+    message = escape_markdown(f"JavBus订阅任务完成情况: {total_success}/{total_offline}", version=2) 
+    if total_success > 0:
+        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/rss_javbus.jpg", message)
+    else:
+        add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/teacher_pto.jpg", message)
+            
+    # 删除垃圾文件
+    for path in save_path_list:
+        init.openapi_115.auto_clean_all(path)
+        time.sleep(10)
+        
+    # 删除本地临时文件
+    del_images(images)
+        
+    # 清空已完成的离线任务
+    init.openapi_115.clear_cloud_task()
+
+
+def javbus_success_proccesser(item, save_path, task):
+    id = item['id']
+    title = item['title']
+    movie_info = item['movie_info']
+    poster_url = item['poster_url']
+    
+    # 更新数据库状态
+    with SqlLiteLib() as sqlite:
+        sql_update = "UPDATE javbus SET is_download=1 WHERE id=?"
+        params_update = (id,)
+        sqlite.execute_sql(sql_update, params_update)
+        
+    init.logger.info(f"{title} 离线下载成功！")
+    
+    # 发送通知
+    if init.bot_config.get('rsshub', {}).get('javbus', {}).get('notify_me', False):
+        # 直接使用 movie_info
+        message = movie_info
+        if not init.aria2_client:
+            add_task_to_queue(init.bot_config['allowed_user'], poster_url, message)
+        else:
+            push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], poster_url, message)
+
+
 
 
 if __name__ == '__main__':

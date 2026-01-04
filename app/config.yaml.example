@@ -77,7 +77,7 @@ av_daily_update:
   # 是否开启日更功能
   enable: false
   # 指定每天的同步时间(24h)建议设置为20:00
-  sync_time: 20:00
+  sync_time: "20:00"
   # 离线到115的保存路径
   save_path: /AV/日更
   # 通知我
@@ -93,7 +93,7 @@ sehua_spider:
   # 指定每天的同步时间(24h)建议设置为03:00
   # 默认同步前一天的数据，建议3点开更，避开凌晨高峰
   # 如频繁触发CF盾，建议将时间改成白天，白天成功率高
-  sync_time: 03:00
+  sync_time: "03:00"
   # BaseUrl
   # 涩花地址，建议填临时地址，速度快~
   # 留空默认永久地址 www.sehuatang.net; www.sehuatang.org
@@ -183,3 +183,68 @@ ai:
   api_key: sk-xxxxxxxxxxxxxxxxxxx
   # 模型
   model: deepseek-ai/DeepSeek-V3.2
+##########################################RSSHub#######################################
+rsshub:
+  # RSSHub地址,格式 http(s)://ip(域名):端口
+  rss_host: https://your_rsshub_website
+  # 需要订阅的RSS源
+  # JavBus
+  javbus:
+    # 单次订阅最大上限
+    # 0: 不限制, 其他数字: 限制数量
+    # 如按厂商订阅，结果可能过千，建议设置一个合理的上限
+    max_subscribe: 0
+    # 订阅超时
+    timeout: 60
+    # 需要订阅的类别
+    # 订阅类别可以根据自己的喜好添加，route参数可以参考RSSHub的javbus路由
+    # 基于类别的路由可参考 https://www.javbus.com/genre，选择喜欢的类别，点击后记录URL中的路由（https://www.javbus.com/genre后面的部分）
+    category:
+        # 最新，订阅首页30条
+      - name: 最新
+        # 路由格式 “/javbus/xxx/xxx”
+        route: /javbus/page/1
+        # 是否需要额外输入参数
+        need_input: false
+        # 115保存路径，按需修改
+        save_path: /AV/JavBus/最新
+      - name: 女优
+        need_input: true
+        route: /javbus/search
+        save_path: /AV/JavBus/女优
+      - name: 无码推荐
+        need_input: false
+        route: /javbus/uncensored/genre/1bc
+        save_path: /AV/JavBus/无码推荐
+      - name: 无码新人
+        need_input: false
+        route: /javbus/uncensored/genre/gre020
+        save_path: /AV/JavBus/无码新人
+      - name: 厂商
+        route: /javbus/search
+        need_input: true
+        save_path: /AV/JavBus/厂商
+    # 通知我
+    notify_me: true
+  # 草榴1024
+  t66y:
+    # 订阅超时
+    timeout: 60
+    # 需要订阅的版块，不需要订阅的直接注释，不要修改名称
+    sections:
+        # 版块名称，请勿修改
+      - name: 亚洲无码原创
+        # 115保存路径，按需修改
+        save_path: /AV/1024/亚洲无码原创
+      - name: 亚洲有码原创
+        save_path: /AV/1024/亚洲有码原创
+      - name: 国产原创
+        save_path: /AV/1024/国产原创
+      - name: 中字原创
+        save_path: /AV/1024/中字原创
+      - name: AI破解原创
+        save_path: /AV/1024/AI破解原创
+    # 通知我
+    notify_me: true
+    # 按年月整理，开启后会自动在保存目录创建年月的文件夹
+    sort_by_year_month: false

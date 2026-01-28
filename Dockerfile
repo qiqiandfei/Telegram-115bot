@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
         echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && apt-get install -y google-chrome-stable=143.0.7499.169-1; \
+        apt-get update && apt-get install -y google-chrome-stable; \
     else \
         # 非 amd64 环境安装 chromium
         apt-get update && apt-get install -y chromium chromium-driver; \
@@ -37,8 +37,8 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip --no-cache-dir && \
     pip install -r requirements.txt --no-cache-dir && \
-    # 安装与 Chrome 143 匹配的 driver
-    seleniumbase install chromedriver 143.0.7499.169
+    # 针对 amd64 安装 Chrome driver (arm64 使用 apt 安装的 chromium-driver)
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then seleniumbase install chromedriver; fi
 
 ADD ./app .
 

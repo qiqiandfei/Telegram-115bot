@@ -237,6 +237,8 @@ if __name__ == '__main__':
     register_sync_handlers(application)
     # 注册视频
     register_video_handlers(application)
+    
+    init.logger.info(f"USER_AGENT: {init.USER_AGENT}")
 
     # 启动机器人轮询
     try:

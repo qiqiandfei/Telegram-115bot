@@ -4,6 +4,7 @@ import os
 import yaml
 import sys
 import shutil
+import subprocess
 from typing import Optional
 from telethon import TelegramClient
 from app.core.open_115 import OpenAPI_115
@@ -73,8 +74,27 @@ CONFIG = "/config"
 TEMP = "/tmp"
 IMAGE_PATH = "/app/images"
 
-# 匹配 Dockerfile 中锁定的 Chrome 143 版本
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+def _get_system_chrome_version():
+    """获取系统安装的 Chrome/Chromium 版本"""
+    try:
+        # 1. 尝试获取 google-chrome-stable 版本
+        res = subprocess.run(['google-chrome-stable', '--version'], capture_output=True, text=True, check=False)
+        if res.returncode == 0:
+             # Output: "Google Chrome 121.0.6167.85"
+            return res.stdout.strip().split()[-1]
+            
+        # 2. 尝试获取 chromium 版本
+        res = subprocess.run(['chromium', '--version'], capture_output=True, text=True, check=False)
+        if res.returncode == 0:
+            # Output: "Chromium 121.0.6167.85 ..."
+            return res.stdout.strip().split()[-1]
+    except Exception:
+        pass
+    return "143.0.0.0"  # Fallback version
+
+# 动态获取当前环境 Chrome 版本生成 User-Agent
+_chrome_ver = _get_system_chrome_version()
+USER_AGENT = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{_chrome_ver} Safari/537.36"
 
 # 调试用
 if debug_mode:

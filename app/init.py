@@ -56,7 +56,7 @@ CRAWL_JAV_STATUS = 0    # javbee爬取状态
 # yaml配置文件
 CONFIG_FILE = "/config/config.yaml"
 # yaml配置文件示例
-CONFIG_FILE_EXAMPLE = "/app/config.yaml.example"
+CONFIG_FILE_EXAMPLE = "/config.yaml.example"
 # 抓取策略文件
 STRATEGY_FILE = "/config/crawling_strategy.yaml"
 # SessionFile

@@ -33,8 +33,13 @@ async def rss_javbus(sub_category, rss_url, user_input):
             url = f"{rss_url}?format=json"
         else:
             url = f"{rss_url}/{page}?format=json"
+        
         if sub_category == "最新":
-            url = f"{rss_url}/page/{page}?format=json"
+            if "page/1" in rss_url:
+                url = f"{rss_url}?format=json"
+            else:
+                url = f"{rss_url}/page/{page}?format=json"
+        
         # 提取本页内容
         content = await get_content_from_rssurl(url)
         

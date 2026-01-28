@@ -135,11 +135,12 @@ def get_av_cover(query):
     async def _async_get_av_cover():
         nonlocal title, cover_url
         browser = SeleniumBrowser("https://avmoo.website/cn")
-        await browser.init_browser()
-        if not browser.driver:
-            return
-
+        
         try:
+            await browser.init_browser()
+            if not browser.driver:
+                return
+
             search_url = f"https://avmoo.website/cn/search/{query}"
             await browser.goto(search_url)
             html = await browser.get_page_source()

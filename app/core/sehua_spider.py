@@ -159,16 +159,16 @@ async def sehua_spider_start_async():
         return
     # 初始化全局浏览器
     browser = SeleniumBrowser(get_base_url())
-    await browser.init_browser()
-    
-    if not browser.driver:
-        add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
-        return
-        
-    # 尝试通过 Cloudflare 验证
-    await browser.pass_cloudflare_check()
     
     try:
+        await browser.init_browser()
+        
+        if not browser.driver:
+            add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
+            return
+            
+        # 尝试通过 Cloudflare 验证
+        await browser.pass_cloudflare_check()
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
         date = yesterday.strftime("%Y-%m-%d")
         sections = init.bot_config['sehua_spider'].get('sections', [])
@@ -202,17 +202,17 @@ async def sehua_spider_by_date_async(date):
     """完整的爬虫启动函数，包含浏览器生命周期管理"""
     global browser
     browser = SeleniumBrowser(get_base_url())
-    await browser.init_browser()
-    # 初始化全局浏览器
-    if not browser.driver:
-        add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
-        init.CRAWL_SEHUA_STATUS = 0
-        return
-        
-    # 尝试通过 Cloudflare 验证
-    await browser.pass_cloudflare_check()
     
     try:
+        await browser.init_browser()
+        # 初始化全局浏览器
+        if not browser.driver:
+            add_task_to_queue(init.bot_config['allowed_user'], None, f"❌ 浏览器初始化失败！")
+            init.CRAWL_SEHUA_STATUS = 0
+            return
+            
+        # 尝试通过 Cloudflare 验证
+        await browser.pass_cloudflare_check()
         sections = init.bot_config['sehua_spider'].get('sections', [])
         for section in sections:
             section_name = section.get('name')

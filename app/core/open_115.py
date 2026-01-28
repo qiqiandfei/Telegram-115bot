@@ -283,6 +283,8 @@ class OpenAPI_115:
             return response['data']
         else:
             init.logger.warn(f"获取文件信息失败: {response}")
+            if response['code'] == 40140125:
+                return response
             return None
         
     @handle_token_expiry
@@ -297,6 +299,8 @@ class OpenAPI_115:
             return response['data']
         else:
             init.logger.warn(f"获取文件信息失败: {response}")
+            if response['code'] == 40140125:
+                return response
             return None
     
     @handle_token_expiry
@@ -1272,14 +1276,14 @@ if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
     app = OpenAPI_115()
-    empty_dir_list = app.auto_clean_all("/AV/1024/亚洲无码原创", clean_empty_dir=True)
-    if not empty_dir_list:
-        init.logger.info("没有找到空目录")
-    else:
-        for dir in empty_dir_list:
-            init.logger.info(f"找到空目录: {dir['fn']}")
-    # m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
-    # print(m3u8_url)
+    # empty_dir_list = app.auto_clean_all("/AV/1024/亚洲无码原创", clean_empty_dir=True)
+    # if not empty_dir_list:
+    #     init.logger.info("没有找到空目录")
+    # else:
+    #     for dir in empty_dir_list:
+    #         init.logger.info(f"找到空目录: {dir['fn']}")
+    m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
+    print(m3u8_url)
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

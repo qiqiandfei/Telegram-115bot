@@ -59,6 +59,7 @@ class SeleniumBrowser:
                 if self.base_url:
                     if not self.base_url.startswith('http'):
                         self.base_url = f"https://{self.base_url}"
+                    self.driver.set_page_load_timeout(init.bot_config.get("selenium_timeout", 60))
                     self.driver.get(self.base_url)
                     
                 init.logger.info("远程 Selenium 连接成功")
@@ -112,6 +113,8 @@ class SeleniumBrowser:
                 except:
                     pass
 
+                self.driver.set_page_load_timeout(init.bot_config.get("selenium_timeout", 60))
+
                 if self.base_url:
                     if not self.base_url.startswith('http'):
                         self.base_url = f"https://{self.base_url}"
@@ -136,15 +139,48 @@ class SeleniumBrowser:
 
     async def close(self):
         try:
-            if self.sb_context:
-                init.logger.info("正在关闭 SeleniumBase 浏览器并清理环境...")
-                # 使用 run_in_executor 包装同步的 __exit__ 操作
-                await asyncio.get_running_loop().run_in_executor(
-                    self.executor, 
-                    self.sb_context.__exit__, 
-                    None, None, None
-                )
-                init.logger.info("浏览器清理完成")
+            init.logger.info("正在关闭浏览器并清理环境...")
+            
+            def _close_sync():
+                # 1. 优先使用 SeleniumBase Context 退出
+                if self.sb_context:
+                    try:
+                        self.sb_context.__exit__(None, None, None)
+                    except Exception as e:
+                        init.logger.warn(f"SeleniumBase Context 退出异常: {e}")
+
+                # 2. 如果 driver 还在 (例如远程模式，或者 context 退出失败)，尝试手动 quit
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                    except Exception as e:
+                        # 忽略 session id 相关的错误，因为可能已经被 close 了
+                        if "invalid session id" not in str(e).lower():
+                             init.logger.warn(f"Driver quit 异常: {e}")
+                
+                # 3. 尝试回收可能的僵尸进程 (Linux)
+                if hasattr(os, 'waitpid'):
+                    try:
+                        while True:
+                            # 尝试非阻塞等待任意子进程结束
+                            pid, status = os.waitpid(-1, os.WNOHANG)
+                            if pid == 0:  # 没有更多已结束的子进程
+                                break
+                    except OSError:
+                        pass
+                    except Exception:
+                        pass
+
+            # 使用 executor 执行同步的清理操作
+            await asyncio.get_running_loop().run_in_executor(
+                self.executor, 
+                _close_sync
+            )
+            
+            # 关闭线程池
+            self.executor.shutdown(wait=True)
+            
+            init.logger.info("浏览器清理完成")
         except Exception as e:
             init.logger.error(f"关闭浏览器时发生错误: {e}")
         finally:

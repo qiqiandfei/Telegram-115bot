@@ -42,6 +42,15 @@ def get_sync_time(category):
 
     return sync_time
 
+def clear_request_count():
+    """清除115请求计数"""
+    init.logger.info(f"昨日累计115 OpenAPI请求次数: [{init.openapi_115.request_count}]")
+    cache_hit_rate = (init.openapi_115.cache_hit / init.openapi_115.request_count * 100) if init.openapi_115.request_count > 0 else 0
+    init.logger.info(f"昨日累计115 缓存命中率: [{cache_hit_rate:.2f}%]")
+    init.logger.info("正在重置115请求计数...")
+    init.openapi_115.clear_request_count()
+    init.logger.info("115请求计数已重置！")
+
 # 定义任务列表
 tasks = []
 
@@ -53,8 +62,9 @@ def init_tasks():
     tasks = [
         {"id": "subscribe_movie_task", "func": schedule_movie, "interval": 4 * 60 * 60, "task_type": "interval"},
         {"id": "av_daily_update_task", "func": av_daily_update, "hour": jav_sync_time.get("hour", 20), "minute": jav_sync_time.get("minute", 0), "task_type": "time"},
-        {"id": "offline_task_retry_task", "func": offline_task_retry, "hour": "9,18", "minute": 00, "task_type": "time"},
+        {"id": "offline_task_retry_task", "func": offline_task_retry, "hour": "9,18", "minute": 0, "task_type": "time"},
         {"id": "retry_failed_downloads", "func": try_to_offline2115_again, "interval": 12 * 60 * 60, "task_type": "interval"},
+        {"id": "clear_request_count_task", "func": clear_request_count, "hour": 0, "minute": 0, "task_type": "time"},
         {"id": "sehua_spider_task", "func": sehua_spider_start, "hour": sehua_sync_time.get("hour", 3), "minute": sehua_sync_time.get("minute", 0), "task_type": "time"}
     ]
 

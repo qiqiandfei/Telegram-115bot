@@ -300,7 +300,7 @@ def download_task(av_result, av_number, save_path, user_id):
                             message=f"❌ 下载任务执行出错: {escape_markdown(str(e), version=2)}")
     finally:
         # 清空离线任务
-        init.openapi_115.clear_cloud_task()
+        init.openapi_115.del_offline_task(info_hash, del_source_file=0)
         
 def push2aria2(save_path, user_id, cover_image, message):
     # 为Aria2推送创建任务ID系统
@@ -367,12 +367,14 @@ def batch_download_task(magnet_links, save_path, user_id):
     time.sleep(120)  # 等待一段时间让离线任务开始处理
 
     success_count = 0
+    success_list = []
     offline_task_status = init.openapi_115.get_offline_tasks()
     for link in valid_links:
         for task in offline_task_status:
             if task['url'] == link:
                 if task['status'] == 2 and task['percentDone'] == 100:
                     success_count += 1
+                    success_list.append(task['info_hash'])
                 else:
                     init.logger.warn(f"[{task['name']}] 离线下载失败或未完成!")
                     # 删除离线失败的文件

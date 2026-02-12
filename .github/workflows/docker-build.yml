@@ -33,7 +33,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
       
     steps:
@@ -68,6 +68,16 @@ jobs:
           echo "📝 Commit message: ${COMMIT_MSG}"
           echo "🔗 GitHub ref: ${GITHUB_REF}"
           
+          # 0. 优先级0: 从 update.md 读取版本 (作为 Release 的来源)
+          if [[ -f "update.md" ]]; then
+             # 提取版本号: 查找 vX.Y.Z 格式
+             FILE_VERSION=$(grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" update.md | head -n1)
+             if [[ -n "$FILE_VERSION" ]]; then
+               echo "📄 Found version in update.md: $FILE_VERSION"
+               echo "file_version=${FILE_VERSION}" >> $GITHUB_OUTPUT
+             fi
+          fi
+
           # 1. 优先级1: 手动触发的自定义版本
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.custom_version }}" ]]; then
             VERSION="${{ github.event.inputs.custom_version }}"
@@ -88,7 +98,13 @@ jobs:
             VERSION_SOURCE="git_tag"
             echo "✅ Using git tag version: ${VERSION}"
             
-          # 3. 优先级3: 从 commit 消息中提取版本号（支持多种格式）
+          # 3. 优先级3: 使用 update.md 中的版本 (如果存在)
+          elif [[ -n "$FILE_VERSION" ]]; then
+            VERSION="$FILE_VERSION"
+            VERSION_SOURCE="update_md"
+            echo "✅ Using version from update.md: ${VERSION}"
+
+          # 4. 优先级4: 从 commit 消息中提取版本号（支持多种格式）
           elif echo "${COMMIT_MSG}" | grep -qE "(v?[0-9]+\.[0-9]+\.[0-9]+)"; then
             # 提取版本号: 支持 v3.2.19, 3.2.19, version 3.2.19 等格式
             VERSION=$(echo "${COMMIT_MSG}" | grep -oE "(v?[0-9]+\.[0-9]+\.[0-9]+)" | head -n1)
@@ -99,7 +115,7 @@ jobs:
             VERSION_SOURCE="commit_message"
             echo "✅ Extracted version from commit message: ${VERSION}"
             
-          # 4. 优先级4: 查找最近的 git 标签
+          # 5. 优先级5: 查找最近的 git 标签
           elif git describe --tags --abbrev=0 2>/dev/null; then
             LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
             # 保留原始标签格式，但确保有 v 前缀
@@ -114,7 +130,7 @@ jobs:
             VERSION_SOURCE="latest_git_tag"
             echo "✅ Using latest git tag: ${VERSION}"
             
-          # 5. 默认: 生成基于时间戳的版本
+          # 6. 默认: 生成基于时间戳的版本
           else
             if [[ $GITHUB_REF == refs/heads/main ]]; then
               VERSION="${TIMESTAMP}-${SHORT_SHA}"
@@ -136,6 +152,13 @@ jobs:
           echo "version_source=${VERSION_SOURCE}" >> $GITHUB_OUTPUT
           echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          
+          # 如果使用了 update.md 的版本，设置 release 标记
+          if [[ "$VERSION_SOURCE" == "update_md" ]]; then
+             echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+             echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
           
           echo ""
           echo "📋 Version Summary:"
@@ -284,3 +307,38 @@ jobs:
           echo "# Specific version" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.should_release == 'true' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "🚀 Starting release process for version $VERSION..."
+          
+          # 1. 检查 Release 是否已存在
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "⚠️ Release $VERSION already exists. Skipping creation."
+            echo "::warning::Release $VERSION already exists."
+            exit 0
+          fi
+          
+          # 2. 准备 Release Note
+          # 去掉第一行标题，保留正文
+          tail -n +2 update.md > release_notes.md
+          
+          echo "📝 Release Notes:"
+          cat release_notes.md
+          
+          # 3. 创建 Release
+          # --target main: 基于 main 分支
+          # --title: 标题，通常是版本号
+          # --notes-file: 内容文件
+          echo "📦 Creating release $VERSION..."
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file release_notes.md \
+            --target main
+            
+          echo "✅ Release $VERSION created successfully!"
+          echo "🔗 $(gh release view "$VERSION" --json url -q .url)"

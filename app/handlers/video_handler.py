@@ -46,37 +46,97 @@ async def save_video2115(update: Update, context: ContextTypes.DEFAULT_TYPE):
         video = update.message.video
         file_name = video.file_name if video.file_name else f"{datetime.now().strftime('%Y%m%d%H%M%S')}.mp4"
         
+        # 获取扩展名
+        _, file_ext = os.path.splitext(file_name)
+        if not file_ext:
+            file_ext = ".mp4"
+
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())[:8]
         
         # 暂存视频信息到 context.user_data，使用 task_id 作为 key
         context.user_data[f"video_{task_id}"] = {
             "file_name": file_name,
+            "file_ext": file_ext,
             "file_size": video.file_size,
             "message_id": update.message.message_id,
             "chat_id": update.effective_chat.id
         }
 
-        # 显示主分类
-        keyboard = []
-        
-        # 添加上次保存路径按钮
-        last_path = context.user_data.get('last_video_save_path')
-        if last_path:
-            keyboard.append([InlineKeyboardButton(f"🚀 上次保存: {last_path}", callback_data=f"quick_last_{task_id}")])
-            
-        keyboard.extend([
-            [InlineKeyboardButton(f"📁 {category['display_name']}", callback_data=f"main_{category['name']}_{task_id}")] 
-            for category in init.bot_config['category_folder']
-        ])
+        # 询问是否重命名
+        keyboard = [
+            [InlineKeyboardButton("使用默认名称", callback_data=f"rename_default_{task_id}")],
+            [InlineKeyboardButton("自定义名称", callback_data=f"rename_custom_{task_id}")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await context.bot.send_message(
             chat_id=update.effective_chat.id, 
-            text=f"📹 收到视频: {file_name}\n❓请选择要保存到哪个分类：",
+            text=f"📹 收到视频: {file_name}\n❓是否需要重命名？",
             reply_markup=reply_markup,
             reply_to_message_id=update.message.message_id
         )
+
+async def show_directory_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: str, edit_message: bool = False):
+    """显示目录选择界面"""
+    video_info = context.user_data.get(f"video_{task_id}")
+    if not video_info:
+        if edit_message and update.callback_query:
+            await update.callback_query.edit_message_text("❌ 任务已过期")
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 任务已过期")
+        return
+
+    file_name = video_info['file_name']
+    
+    # 显示主分类
+    keyboard = []
+    
+    # 添加上次保存路径按钮
+    last_path = context.user_data.get('last_video_save_path')
+    if last_path:
+        keyboard.append([InlineKeyboardButton(f"🚀 上次保存: {last_path}", callback_data=f"quick_last_{task_id}")])
+        
+    keyboard.extend([
+        [InlineKeyboardButton(f"📁 {category['display_name']}", callback_data=f"main_{category['name']}_{task_id}")] 
+        for category in init.bot_config['category_folder']
+    ])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = f"📹 视频文件: {file_name}\n❓请选择要保存到哪个分类："
+    
+    if edit_message and update.callback_query:
+        await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text=text,
+            reply_markup=reply_markup,
+            reply_to_message_id=update.message.message_id
+        )
+
+async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理重命名输入"""
+    task_id = context.user_data.get('rename_task_id')
+    if not task_id:
+        return
+
+    new_name = update.message.text.strip()
+    
+    video_info = context.user_data.get(f"video_{task_id}")
+    if video_info:
+        # 如果新名字没有扩展名，且我们有原扩展名
+        if not os.path.splitext(new_name)[1]:
+             file_ext = video_info.get('file_ext', '.mp4')
+             new_name += file_ext
+             
+        video_info['file_name'] = new_name
+        # 清除等待状态
+        del context.user_data['rename_task_id']
+        
+        # 显示目录选择
+        await show_directory_selection(update, context, task_id)
+
 
 
 async def handle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,7 +151,21 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     parts = data.split('_')
     action = parts[0]
     
-    if action == "main":
+    if action == "rename":
+        # 处理重命名选择: rename_default_taskId 或 rename_custom_taskId
+        sub_action = parts[1]
+        task_id = parts[2]
+        
+        if sub_action == "default":
+            # 使用默认名称，直接显示目录选择
+            await show_directory_selection(update, context, task_id, edit_message=True)
+            
+        elif sub_action == "custom":
+            # 自定义名称，提示输入
+            context.user_data['rename_task_id'] = task_id
+            await query.edit_message_text("⌨️ 请输入新的文件名（无需后缀）：")
+
+    elif action == "main":
         # 选择主分类: main_categoryName_taskId
         category_name = parts[1]
         task_id = parts[2]
@@ -251,11 +325,14 @@ def register_video_handlers(application):
     # 注册视频消息处理器
     application.add_handler(MessageHandler(filters.VIDEO, save_video2115))
     
-    # 注册回调处理器
-    # 添加 v_ 前缀支持
-    application.add_handler(CallbackQueryHandler(handle_category_selection, pattern="^(main|sub|back|cancel|quick|v)_"))
+    # 注册重命名输入处理器 (只处理文本，且非命令)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_input))
     
-    init.logger.info("✅ Video处理器已注册 (并发版)")
+    # 注册回调处理器
+    # 添加 v_ 前缀支持，添加 rename 前缀支持
+    application.add_handler(CallbackQueryHandler(handle_category_selection, pattern="^(main|sub|back|cancel|quick|v|rename)_"))
+    
+    init.logger.info("✅ Video处理器已注册")
     
 
 

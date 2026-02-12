@@ -235,7 +235,7 @@ def download_from_link(download_url, movie_name, save_path):
         return False
     finally:
         # 清除云端任务，避免重复下载
-        init.openapi_115.clear_cloud_task()
+        init.openapi_115.del_offline_task(info_hash, del_source_file=0)
     
     
 def send_message2usr(tmdb_id, sqlite):

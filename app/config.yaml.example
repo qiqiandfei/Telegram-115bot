@@ -125,14 +125,21 @@ sehua_spider:
   
 #############################################软链接设置####################################
 # strm可以极大地减小请求115的次数避免风控，建议开启
-# create_strm只针对通过“dl”命令下载的资源有效，不建议使用“dl”下载AV资源
-# AV资源建议使用“av”命令下载，并搭配第三方削刮工具(MDC-NG)自动生成软链，体验更好
-# 是否创建软链（非302）
-create_strm: true
-# CloudDrive2 挂载115的根目录
-mount_root: /CloudNAS/115
-# 软链接根目录，软链接目录可以看成是115挂载目录的镜像，也是Emby设置媒体库的目录，需要挂载到容器
+# 可选值：
+# - strm_302        # strm + OpenList 302（推荐, 需要自己部署go-emby2openlist）
+# - strm_local      # 只生成本地strm，与原strm方式一致，需要CD2，不走 302 (不推荐）
+# - disable         # 都不使用
+strm_mode: strm_302
+
+# strm文件存放路径(Emby挂载路径)
 strm_root: /media/115
+
+# OpenList 115挂载根路径(302用)
+openlist_root: /115
+
+# CD2 115根目录
+mount_root: /CloudNAS/115
+
 
 #############################################EMBY设置####################################
 # 有新资源入库时会同时Emby扫库，所有媒体库建议按“加入日期”到排序
@@ -226,6 +233,8 @@ rsshub:
         save_path: /AV/JavBus/厂商
     # 通知我
     notify_me: true
+    # 按年月整理，开启后会自动在保存目录创建年月的文件夹
+    sort_by_year_month: false
   # 草榴1024
   t66y:
     # 订阅超时

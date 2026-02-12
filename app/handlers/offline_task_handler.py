@@ -60,6 +60,7 @@ def try_to_offline2115_again():
 
     time.sleep(300)  # 等待5秒，确保任务状态更新
     
+    success_list= []
     offline_task_status = init.openapi_115.get_offline_tasks()
     for failed_task in failed_tasks:
         task_id = failed_task['id']
@@ -134,6 +135,7 @@ def try_to_offline2115_again():
                     
                     # 标记任务为完成
                     mark_task_as_completed(task_id)
+                    success_list.append(task['info_hash'])
                     
                 else:
                     init.logger.warn(f"重试任务 {title} 下载超时！")
@@ -143,7 +145,10 @@ def try_to_offline2115_again():
                     init.openapi_115.del_offline_task(task['info_hash'])
                 break
     # 清除云端任务
-    init.openapi_115.clear_cloud_task()
+    for info_hash in success_list:
+        init.logger.info(f"清除云端任务 {info_hash} ...")
+        init.openapi_115.del_offline_task(info_hash, del_source_file=0)
+        time.sleep(2)
     
 
 

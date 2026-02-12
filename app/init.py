@@ -273,7 +273,7 @@ def initialize_115open():
         if openapi_115.access_token and openapi_115.refresh_token:
             user_info = openapi_115.get_user_info()
             if not user_info:
-                logger.error("115 OpenAPI客户端初始化失败: 无法获取用户信息")
+                logger.error("115 OpenAPI客户端初始化失败: OpenAPI测试失败！")
                 return False
             logger.info("115 OpenAPI客户端初始化成功")
             return True

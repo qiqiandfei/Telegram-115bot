@@ -3,6 +3,8 @@ import init
 import time
 import os
 import asyncio
+import shutil
+from pathlib import Path
 from datetime import datetime
 from app.utils.sqlitelib import *
 from app.utils.message_queue import add_task_to_queue
@@ -84,6 +86,8 @@ def sehua_offline():
             offline_groups = create_offline_group_by_save_path(results)
             if offline_groups:
                 for save_path, batches in offline_groups.items():
+                    # 按年月分类存储
+                    save_path = add_year_month_to_path(init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False), save_path)
                     if save_path not in save_path_list:
                         save_path_list.append(save_path)
                     for batch_tasks in batches:
@@ -111,6 +115,8 @@ def sehua_offline():
     # 获取离线任务状态
     offline_task_status = init.openapi_115.get_offline_tasks()
     images = []
+    time_stamp = int(time.time())
+    success_task = []
     for item in check_results:
         section_name = item['section_name']
         magnet = item['magnet']
@@ -122,18 +128,21 @@ def sehua_offline():
             asia_uncensored_count += 1
         elif section_name == '高清中文字幕':
             hd_subtitle_count += 1
-        save_path = item['save_path']
+        save_path = add_year_month_to_path(init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False), item['save_path'])
         for task in offline_task_status:
             if task['url'] == magnet:
                 if task['status'] == 2 and task['percentDone'] == 100:
                     sehua_success_proccesser(item, save_path, task, success_counters)
                     images.append(item['image_path'])
+                    if section_name == '国产原创':
+                        success_task.append({"task": task, "save_path": save_path, "image_path": item['image_path']})
+                    else:
+                        success_task.append({"task": task, "save_path": save_path})
                 else:
                     init.logger.warn(f"{item['title']} 离线下载失败或未完成。")
                     # 删除离线失败的文件
                     init.openapi_115.del_offline_task(task['info_hash'])
                 break
-            
     # 等待消息队列处理完成，避免在消息发送期间删除图片文件
     wait_for_message_queue_completion("涩花")
 
@@ -172,14 +181,13 @@ def sehua_offline():
             add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/sehua_daily_update.png", final_message)
         else:
             add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/teacher_pto.jpg", final_message)
+            return
     
-    # 删除垃圾文件
-    current_yearmonth = datetime.now().strftime("%Y%m")
+    # 删除垃圾文件 创建strm文件
     for path in save_path_list:
-        if init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False):
-            path = f"{path}/{current_yearmonth}"
         init.openapi_115.auto_clean_all(path)
-        time.sleep(10)
+        result = init.openapi_115.find_all_voideos(path, success_task, time_stamp)
+        generate_strm_file(result)
     
     # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
@@ -219,15 +227,6 @@ def sehua_success_proccesser(item, save_path, task, success_list):
         sql_update = "UPDATE sehua_data SET is_download=1 WHERE id=?"
         params_update = (id,)
         sqlite.execute_sql(sql_update, params_update)
-    
-    # 按年月整理
-    if init.bot_config.get('sehua_spider', {}).get('sort_by_year_month', False):
-        current_yearmonth = datetime.now().strftime("%Y%m")
-        year_month_path = f"{save_path}/{current_yearmonth}"
-        # 移动已下载的文件到对应目录
-        init.openapi_115.create_dir_recursive(year_month_path)
-        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
-
     
     init.logger.info(f"{title} 离线下载成功！")
     
@@ -304,10 +303,14 @@ def av_daily_offline():
     
     # 分批处理，每100个任务一批
     create_offline_url_list = create_offline_url(update_list)
+    save_path = init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')
+    # 按年月分类存储
+    save_path = add_year_month_to_path(init.bot_config.get('av_daily_update', {}).get('sort_by_year_month', False), save_path)
+    
     if create_offline_url_list:
         for offline_tasks in create_offline_url_list:
             # 离线到115
-            offline2115(offline_tasks, len(update_list), init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更'))
+            offline2115(offline_tasks, len(update_list), save_path)
     else:
         init.logger.warn("AV日更离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
         add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/male023.png", "AV日更离线任务未执行，可能是115离线配额不足，请检查115账号状态！")
@@ -317,12 +320,15 @@ def av_daily_offline():
     time.sleep(300)
     # 获取离线任务状态
     offline_task_status = init.openapi_115.get_offline_tasks()
+    time_stamp = int(time.time())
+    success_task = []
     # 检查离线下载状态     
     for item in update_list:
         for task in offline_task_status:
             if task['url'] == item['magnet']:
                 if task['status'] == 2 and task['percentDone'] == 100:
-                    av_daily_success_proccesser(item, task)
+                    av_daily_success_proccesser(item, task, save_path)
+                    success_task.append({"task": task, "save_path": save_path})
                     item['success'] = True
                 else:
                     init.logger.warn(f"{item['av_number']} 离线下载失败或未完成。")
@@ -344,34 +350,23 @@ def av_daily_offline():
 
     add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/av_daily_update.png", message)
     
-    # 删除垃圾文件
-    if init.bot_config.get('av_daily_update', {}).get('sort_by_year_month', False):
-        current_yearmonth = datetime.now().strftime("%Y%m")
-        save_path = f"{init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')}/{current_yearmonth}"
-    else:
-        save_path = init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')
+    # 删除垃圾文件 创建strm文件
     init.openapi_115.auto_clean_all(save_path)
+    # 创建软链
+    result = init.openapi_115.find_all_voideos(save_path, success_task, time_stamp)
+    generate_strm_file(result)
     
     # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
     
     
-def av_daily_success_proccesser(item, task):
-    save_path = init.bot_config.get('av_daily_update', {}).get('save_path', '/AV/日更')
+def av_daily_success_proccesser(item, task, save_path):
     
     # 更新数据库状态
     with SqlLiteLib() as sqlite:
         sql_update = "UPDATE av_daily_update SET is_download=1 WHERE id=?"
         params_update = (item['id'],)
         sqlite.execute_sql(sql_update, params_update)
-        
-    # 按年月整理
-    if init.bot_config.get('av_daily_update', {}).get('sort_by_year_month', False):
-        current_yearmonth = datetime.now().strftime("%Y%m")
-        year_month_path = f"{save_path}/{current_yearmonth}"
-        # 移动已下载的文件到对应目录
-        init.openapi_115.create_dir_recursive(year_month_path)
-        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
     
     init.logger.info(f"{item['av_number'].upper()} 离线下载完成！")
     
@@ -523,6 +518,8 @@ def t66y_offline():
         offline_groups = create_offline_group_by_save_path(results)
         if offline_groups:
             for save_path, batches in offline_groups.items():
+                # 按年月分类存储
+                save_path = add_year_month_to_path(init.bot_config.get('rsshub', {}).get('t66y', {}).get('sort_by_year_month', False), save_path)
                 if save_path not in save_path_list:
                     save_path_list.append(save_path)
                 for batch_tasks in batches:
@@ -548,16 +545,18 @@ def t66y_offline():
 
     # 获取离线任务状态
     offline_task_status = init.openapi_115.get_offline_tasks()
-    
+    time_stamp = int(time.time())
+    success_task = []
     for item in check_results:
         magnet = item['magnet']
-        save_path = item['save_path']
+        save_path = add_year_month_to_path(init.bot_config.get('rsshub', {}).get('t66y', {}).get('sort_by_year_month', False), item['save_path'])
         section_name = item.get('section_name', '未知板块')
         
         for task in offline_task_status:
             if task['url'] == magnet:
                 if task['status'] == 2 and task['percentDone'] == 100:
                     t66y_success_proccesser(item, save_path, task)
+                    success_task.append({"task": task, "save_path": save_path})
                     section_stats[section_name]['success'] += 1
                 else:
                     init.logger.warn(f"{item['title']} 离线下载失败或未完成。")
@@ -586,12 +585,11 @@ def t66y_offline():
             add_task_to_queue(init.bot_config['allowed_user'], f"{init.IMAGE_PATH}/teacher_pto.jpg", final_message)
             
     # 删除垃圾文件
-    current_yearmonth = datetime.now().strftime("%Y%m")
     for path in save_path_list:
-        if init.bot_config.get('t66y_spider', {}).get('sort_by_year_month', False):
-            path = f"{path}/{current_yearmonth}"
         init.openapi_115.auto_clean_all(path, clean_empty_dir=True)
-        time.sleep(10)
+        # 创建软链
+        result = init.openapi_115.find_all_voideos(path, success_task, time_stamp)
+        generate_strm_file(result)
         
     # 清空已完成的离线任务
     init.openapi_115.clear_cloud_task()
@@ -611,14 +609,6 @@ def t66y_success_proccesser(item, save_path, task):
         sql_update = "UPDATE t66y SET is_download=1 WHERE id=?"
         params_update = (id,)
         sqlite.execute_sql(sql_update, params_update)
-        
-    # 按年月整理
-    if init.bot_config.get('rsshub', {}).get('t66y', {}).get('sort_by_year_month', False):
-        current_yearmonth = datetime.now().strftime("%Y%m")
-        year_month_path = f"{save_path}/{current_yearmonth}"
-        # 移动已下载的文件到对应目录
-        init.openapi_115.create_dir_recursive(year_month_path)
-        init.openapi_115.move_file(f"{save_path}/{task['name']}", year_month_path)
         
     init.logger.info(f"{title} 离线下载成功！")
     
@@ -666,6 +656,8 @@ def javbus_offline():
         offline_groups = create_offline_group_by_save_path(results)
         if offline_groups:
             for save_path, batches in offline_groups.items():
+                # 按年月分类存储
+                save_path = add_year_month_to_path(init.bot_config.get('rsshub', {}).get('javbus', {}).get('sort_by_year_month', False), save_path)
                 if save_path not in save_path_list:
                     save_path_list.append(save_path)
                 for batch_tasks in batches:
@@ -681,17 +673,20 @@ def javbus_offline():
 
     # 获取离线任务状态
     offline_task_status = init.openapi_115.get_offline_tasks()
+    time_stamp = int(time.time())
+    success_task = []
     total_success = 0
     total_offline = len(check_results)
     for item in check_results:
         magnet = item['magnet']
-        save_path = item['save_path']
+        save_path = add_year_month_to_path(init.bot_config.get('rsshub', {}).get('javbus', {}).get('sort_by_year_month', False), item['save_path'])
         image_path = item['poster_url']
         
         for task in offline_task_status:
             if task['url'] == magnet:
                 if task['status'] == 2 and task['percentDone'] == 100:
                     javbus_success_proccesser(item, save_path, task)
+                    success_task.append({"task": task, "save_path": save_path})
                     total_success += 1
                     images.append(image_path)
                 else:
@@ -713,7 +708,9 @@ def javbus_offline():
     # 删除垃圾文件
     for path in save_path_list:
         init.openapi_115.auto_clean_all(path)
-        time.sleep(10)
+        # 创建软链
+        result = init.openapi_115.find_all_voideos(path, success_task, time_stamp)
+        generate_strm_file(result)
         
     # 删除本地临时文件
     del_images(images)
@@ -744,8 +741,66 @@ def javbus_success_proccesser(item, save_path, task):
             add_task_to_queue(init.bot_config['allowed_user'], poster_url, message)
         else:
             push2aria2(f"{save_path}/{task['name']}", init.bot_config['allowed_user'], poster_url, message)
+            
+            
+def generate_strm_file(result):
+    strm_mode = init.bot_config.get('strm_mode', 'disable')
+    if strm_mode == 'disable':
+        return
+    
+    strm_root = init.bot_config.get('strm_root', '/media/115')
+    mount_root = init.bot_config.get('mount_root', '/CloudNAS/115')
+    openlist_root = init.bot_config.get('openlist_root', '/115')
+
+    for item in result:
+        try:
+            save_path = item['save_path']
+            folder_name = item['folder_name']
+            file_name = item['file_name']
+            image_path = item['image_path']
+            
+            # 去除 save_path 可能带有的前导 /，防止 Path 拼接时被视为绝对路径重置根目录
+            relative_save_path = save_path.lstrip('/')
+            
+            # 使用 【视频文件名】 作为 strm 文件名，防止同一文件夹下有多个视频时发生覆盖
+            strm_file_name = f"{Path(file_name).stem}.strm"
+            
+            # 完整 strm 文件路径
+            strm_file_path = Path(strm_root) / relative_save_path / folder_name / strm_file_name
+            
+            # 创建父目录（不存在则创建）
+            strm_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 如果有图片就当海报
+            if image_path and os.path.exists(image_path):
+                poster_path = Path(image_path)
+                image_suffix = poster_path.suffix.lower()
+                if image_suffix:
+                    if image_suffix in ['.jpg', '.jpeg', '.png']:
+                        shutil.copy2(image_path, strm_file_path.parent / f"poster{image_suffix}")
+                    else:
+                        shutil.copy2(image_path, strm_file_path.parent / "poster.jpg")
+            
+            # 构建 strm 内容路径 (指向实际挂载路径或网盘路径)
+            # 使用 os.path.normpath 规范化路径，自动处理多余的 / (如 /115//AV/...)
+            if strm_mode == "strm_local":
+                real_path = os.path.normpath(f"{mount_root}/{save_path}/{folder_name}/{file_name}")
+            else:
+                real_path = os.path.normpath(f"{openlist_root}/{save_path}/{folder_name}/{file_name}")
+                
+            with open(strm_file_path, 'w', encoding='utf-8') as f:
+                f.write(real_path)
+            init.logger.info(f"已创建STRM文件: {strm_file_path}，内容: {real_path}")
+            
+        except Exception as e:
+            init.logger.error(f"创建STRM文件失败 [{item.get('file_name', '')}]: {e}")
 
 
+def add_year_month_to_path(need_add, original_path):
+    if not need_add:
+        return original_path
+    current_yearmonth = datetime.now().strftime("%Y%m")
+    return os.path.normpath(f"{original_path}/{current_yearmonth}")
 
 
 if __name__ == '__main__':

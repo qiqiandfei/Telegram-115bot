@@ -276,6 +276,9 @@ async def section_spider(section_name, date):
                     
                     # 检查 Cloudflare
                     await browser.pass_cloudflare_check()
+                    
+                    # 检查 safeid
+                    await safeid_check()
 
                     # 检查年龄验证
                     await age_check()
@@ -435,6 +438,7 @@ async def get_section_update(section_name, date):
                     # 访问目标页面
                     await browser.goto(url)
                     await browser.pass_cloudflare_check()
+                    await safeid_check()
                     await age_check()
                     
                     # 等待页面完全加载
@@ -586,6 +590,49 @@ async def age_check():
     except Exception as e:
         init.logger.warn(f"  年龄验证处理出错: {str(e)}")
         # 继续执行，不因为年龄验证失败而中断
+
+
+async def safeid_check():
+    """检查并处理 safeid 验证"""
+    try:
+        content = await browser.get_page_source()
+        if "var safeid" in content:
+            init.logger.info("检测到 safeid 变量，尝试提取并添加 Cookie...")
+            safeid = extract_safeid(content)
+            if safeid:
+                init.logger.info(f"提取到 safeid: {safeid}")
+                
+                # 添加 cookie
+                cookie_dict = {
+                    'name': '_safe',
+                    'value': safeid,
+                    'path': '/',
+                }
+                
+                # 在 driver 线程中执行 cookie 添加操作
+                await browser.run_with_driver(lambda d: d.add_cookie(cookie_dict))
+                
+                init.logger.info("safeid cookie 添加成功，刷新页面...")
+                await browser.run_with_driver(lambda d: d.refresh())
+                await asyncio.sleep(3) # 等待刷新完成
+                
+                # 再次等待元素加载
+                await browser.wait_for_element("tbody[id^='normalthread_']")
+            else:
+                init.logger.warn("未提取到 valid safeid")
+    except Exception as e:
+        init.logger.warn(f"safeid 处理出错: {e}")
+
+def extract_safeid(html):
+    """提取 safeid"""
+    try:
+        pattern = r"var\s+safeid\s*=\s*['\"]([^'\"]+)['\"]"
+        match = re.search(pattern, html)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
 
     
         

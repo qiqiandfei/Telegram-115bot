@@ -26,7 +26,7 @@ from app.handlers.rss_handler import register_rss_handlers
 
 
 def get_version(md_format=False):
-    version = "v3.3.6"
+    version = "v3.4.0"
     if md_format:
         return escape_markdown(version, version=2)
     return version

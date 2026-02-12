@@ -4,6 +4,7 @@ import base64
 import hashlib
 import re
 import sys
+import threading
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -12,6 +13,7 @@ import init
 import qrcode
 import json
 import time
+import random
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from functools import wraps
@@ -19,7 +21,7 @@ from app.utils.message_queue import add_task_to_queue
 from app.utils.alioss import upload_file_to_oss
 from telegram.helpers import escape_markdown
 
-
+RISK_THRESHOLD = 0.95
 
 def handle_token_expiry(func):
     """装饰器：统一处理API调用中的token过期情况"""
@@ -79,6 +81,12 @@ class OpenAPI_115:
         self.access_token = ""
         self.refresh_token = ""
         self.base_url = "https://proapi.115.com"
+        self.lifetime_vip = False
+        self.request_count = 0
+        self.lock = threading.Lock()
+        self.last_req_time = 0
+        self.file_info_cache = {}
+        self.cache_hit = 0
         self.get_token()  # 初始化时获取token
         
     def get_token(self):
@@ -107,7 +115,8 @@ class OpenAPI_115:
         
     def auth_pkce(self, sub_user, app_id):
         header = {
-            "Content-Type": "application/x-www-form-urlencoded"
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": init.USER_AGENT
         }
         verifier, challenge = self.get_challenge()
         data = {
@@ -217,7 +226,8 @@ class OpenAPI_115:
             self.refresh_token = file_refresh_token
         
         header = {
-            "Content-Type": "application/x-www-form-urlencoded"
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": init.USER_AGENT
         }
         
         url = "https://passportapi.115.com/open/refreshToken"
@@ -255,8 +265,23 @@ class OpenAPI_115:
 
     def _make_api_request(self, method: str, url: str, params=None, data=None, headers=None):
         """统一的API请求方法"""
-        if headers is None:
-            headers = self._get_headers()
+        with self.lock:
+            # 1. 检查风控计数
+            if self.check_risk():
+                return {"code": -1, "message": "今日请求即将到达上限！请明日再试！"}
+            
+            # 2. 智能流控：确保请求间隔至少 0.5s (即最大 2 QPS)
+            min_interval = 0.5
+            current_time = time.time()
+            elapsed = current_time - self.last_req_time
+            
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+            
+            self.last_req_time = time.time()
+            
+            if headers is None:
+                headers = self._get_headers()
         
         if method.upper() == 'GET':
             response = requests.get(url, headers=headers, params=params)
@@ -264,7 +289,6 @@ class OpenAPI_115:
             response = requests.post(url, headers=headers, data=data)
         else:
             raise ValueError(f"不支持的HTTP方法: {method}")
-        
         if response.status_code == 200:
             return response.json()
         else:
@@ -273,6 +297,15 @@ class OpenAPI_115:
     
     @handle_token_expiry
     def get_file_info(self, path: str):
+        # 优先从缓存获取
+        if path in self.file_info_cache:
+            data = self.file_info_cache[path]
+            # 直接从缓存中获取
+            init.logger.debug(f"Cache hit for {path}")
+            self.cache_hit += 1
+            return data
+
+
         url = f"{self.base_url}/open/folder/get_info"
         params = {"path": path}
         response = self._make_api_request('GET', url, params=params)
@@ -280,6 +313,8 @@ class OpenAPI_115:
         # 如果成功获取文件信息，记录日志
         if isinstance(response, dict) and response.get('code') == 0:
             init.logger.debug(f"获取文件信息成功: {response}")
+            # 更新缓存
+            self.file_info_cache[path] = (response['data'])
             return response['data']
         else:
             init.logger.warn(f"获取文件信息失败: {response}")
@@ -327,16 +362,22 @@ class OpenAPI_115:
     
     @handle_token_expiry
     def offline_download_specify_path(self, download_url, save_path):
+        save_path = os.path.normpath(save_path)
         url = f"{self.base_url}/open/offline/add_task_urls"
         file_info = self.get_file_info(save_path)
         
         if not file_info:
-            self.create_dir_recursive(save_path)
-            # 创建目录后重新获取信息
-            file_info = self.get_file_info(save_path)
+            created_info = self.create_dir_recursive(save_path)
+            if created_info:
+                file_info = created_info
             
+            # Create directory might have lag, retry getting info
             if not file_info:
-                raise Exception(f"无法创建或获取保存路径: {save_path}")
+                for _ in range(3):
+                    file_info = self.get_file_info(save_path)
+                    if file_info:
+                        break
+                    time.sleep(2)
         
         data = {
             "urls": download_url,
@@ -387,7 +428,7 @@ class OpenAPI_115:
                             'wp_path_id': task['wp_path_id'],         # 下载目录id
                             'delete_file_id': task['delete_file_id']  # 同file_id
                         })
-                time.sleep(1)  # 避免请求过快
+                time.sleep(2)  # 避免请求过快
             return task_list  
         else:
             init.logger.warn(f"获取离线下载任务列表失败: {response}")
@@ -465,6 +506,8 @@ class OpenAPI_115:
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
             init.logger.info(f"文件重命名成功: [{old_name}] -> [{new_name}]")
+            if old_name in self.file_info_cache:
+                del self.file_info_cache[old_name]
             return True
         else:
             init.logger.warn(f"文件重命名失败: {response['message']}")
@@ -483,6 +526,8 @@ class OpenAPI_115:
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
             init.logger.info(f"文件重命名成功: [{old_name}] -> [{new_name}]")
+            if old_name in self.file_info_cache:
+                del self.file_info_cache[old_name]
             return True
         else:
             init.logger.warn(f"文件重命名失败: {response['message']}")
@@ -517,7 +562,7 @@ class OpenAPI_115:
         
         if isinstance(response, dict) and response.get('code') == 0:
             init.logger.info(f"目录创建成功: {file_name}")
-            return True
+            return response.get('data') or True
         elif response.get('code') == 20004:
             init.logger.info(f"目录已存在: {file_name}")
             return True
@@ -592,6 +637,8 @@ class OpenAPI_115:
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
             init.logger.info(f"文件(夹)删除成功: {path}")
+            if path in self.file_info_cache:
+                del self.file_info_cache[path]
             return True
         else:
             init.logger.warn(f"文件(夹)删除失败: {response['message']}")
@@ -839,9 +886,12 @@ class OpenAPI_115:
         else:
             init.logger.warn(f"移动文件失败: 复制文件失败")
             return False
+    
+    def clear_request_count(self):
+        """清除请求计数"""
+        self.request_count = 0
+        self.cache_hit = 0
         
-        
-
     def welcome_message(self):
         """欢迎消息"""
         user_info = self.get_user_info()
@@ -852,6 +902,9 @@ class OpenAPI_115:
             used_space = user_info['rt_space_info']['all_use']['size_format']
             remaining_space = user_info['rt_space_info']['all_remain']['size_format']
             vip_info = user_info.get('vip_info', {})
+            # 判断永V
+            if "长期" in vip_info.get('level_name', ''):
+                self.lifetime_vip = True
             expire_date = datetime.fromtimestamp(vip_info.get('expire', 0), tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
             line1 = escape_markdown(f"👋 [{user_name}]您好， 欢迎使用Telegram-115Bot！", version=2)
             line2 = escape_markdown(f"会员等级：{vip_info.get('level_name', '')} \n到期时间：{expire_date}", version=2)
@@ -859,7 +912,8 @@ class OpenAPI_115:
             line4 = escape_markdown(f"离线配额：{quota_info['used']}/{quota_info['count']}", version=2)   
             return line1, line2, line3, line4
         else:
-            return "", "", "", ""
+            line1 = escape_markdown(f"👋 [{user_name}]您好， 欢迎使用Telegram-115Bot！", version=2)
+            return line1, "", "", ""
 
 
     def check_offline_download_success(self, url, offline_timeout=300):
@@ -884,6 +938,27 @@ class OpenAPI_115:
                     break
         init.logger.warn(f"[{task_name}]离线下载超时!")
         return False, task_name, info_hash
+    
+    # def check_offline_download_success(self, url, offline_timeout=180):
+    #     time.sleep(offline_timeout)  # 等待下载完成
+    #     task_name = ""
+    #     info_hash = ""
+    #     tasks = self.get_offline_tasks()
+    #     if not tasks:
+    #         return False, "", ""
+    #     for task in tasks:
+    #         # 判断任务的URL是否匹配
+    #         if task.get('url') == url:
+    #             task_name = task.get('name', '')
+    #             info_hash = task.get('info_hash', '')
+    #             # 检查任务状态
+    #             if task.get('status') == 2 or task.get('percentDone') == 100:
+    #                 return True, task_name, info_hash
+    #             else:
+    #                 break
+
+    #     init.logger.warn(f"[{task_name}]离线下载超时!")
+    #     return False, task_name, info_hash
 
         
     def get_files_from_dir(self, path, file_type=4):
@@ -905,7 +980,7 @@ class OpenAPI_115:
             video_list.append(file['fn'])
         return video_list
     
-    def get_sync_dir(self, path, file_type=4):
+    def get_sync_dir(self, path, offset=0, limit=1150):
         """获取指定目录下的所有文件"""
         video_list = []
         file_info = self.get_file_info(path)
@@ -916,8 +991,9 @@ class OpenAPI_115:
         # 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
         params = {
             "cid": file_info['file_id'],
-            "type": file_type,
-            "limit": 1000
+            "type": 4,
+            "limit": limit,
+            "offset": offset
         }
         file_list = self.get_file_list(params)
         if not file_list:
@@ -1153,36 +1229,175 @@ class OpenAPI_115:
                 empty_dir_list.append(pid)
             time.sleep(0.1)  # 避免请求过快
         return empty_dir_list
+    
+    
+    def find_all_voideos(self, path, success_task, time_stamp, offset=0, video_list=None, limit=1150):
+        file_info = self.get_file_info(path)
+        if not file_info:
+            init.logger.warn(f"获取目录信息失败: {path}")
+            return []
+            
+        cid = file_info['file_id']
+        if video_list is None:
+            video_list = []
+            
+        params = {
+            "cid": cid,
+            "type": 4,
+            "limit": limit,
+            "show_dir": 0,
+            "custom_order": 1,
+            "asc": 0,
+            "o": "user_utime",
+            "offset": offset
+        }
+        current_files = self.get_file_list(params)
+        
+        stop_searching = False
+        
+        if current_files:
+            for item in current_files:
+                diff = time_stamp - item['upt']
+                # 寻找 time_stamp 前 600 秒内上传的文件（包含最新的）
+                if diff > 600:
+                    # 文件太旧，且后续更旧，停止
+                    stop_searching = True
+                    break
+                else:
+                    video_list.append({"pid": item['pid'], 'name': item['fn']})
+            
+            # 如果没有遇到太旧的文件，且当前页是满的，继续翻页
+            if not stop_searching and len(current_files) == limit:
+                offset += limit
+                return self.find_all_voideos(path, success_task, time_stamp, offset, video_list, limit)
+        
+        result = []
+        for video in video_list:
+            for item in success_task:
+                # 兼容 offline_task_retry.py 传入的包装结构 {"task": task, "save_path": ...}
+                task = item['task'] if isinstance(item, dict) and 'task' in item else item
+                if video['pid'] == task.get('file_id'):
+                    # 优先从item中获取image_path，如果没有则尝试从task中获取
+                    image_path = item.get('image_path') if isinstance(item, dict) else None
+                    if not image_path:
+                        image_path = task.get('image_path', '')
+
+                    result.append({
+                        "save_path": path,
+                        "folder_name": task.get('name'),
+                        "file_name": video['name'],
+                        "image_path": image_path
+                    })
+                    break
+        return result
                 
 
 
     def create_dir_recursive(self, path):
         """递归创建目录"""
+        # 清除目标路径缓存，确保状态最新
+        if path in self.file_info_cache:
+            del self.file_info_cache[path]
+
         res = self.get_file_info(path)
         if res:
             init.logger.info(f"[{path}]目录已存在！")
-            return
-        path_list= get_parent_paths(path)
+            return res
+        
+        path_list = get_parent_paths(path) 
+        # get_parent_paths 返回如 ['/AV', '/AV/涩花', '/AV/涩花/亚洲无码原创', ...]
+        
         last_path = ""
+        final_info = None
+        
         for index, item in enumerate(path_list):
+            # 同样清除沿途路径缓存
+            if item in self.file_info_cache:
+                del self.file_info_cache[item]
+
             res = self.get_file_info(item)  # 确保目录存在
             if res:
                 last_path = item
+                final_info = res
             else:
-                if index == 0:
-                    if item.startswith("/"):
-                        self.create_directory(0, item[1:])
-                    else:
-                        self.create_directory(0, item)
-                    time.sleep(1)  # 等待目录创建完成
-                    last_path = item
+                # 需要创建
+                parent_id = 0
                 if index > 0:
-                    file_info = self.get_file_info(last_path)
-                    self.create_directory(file_info['file_id'], os.path.basename(item))
-                    time.sleep(1)
-                    last_path = item
+                    # 需要父目录ID
+                    if not final_info:
+                         # 尝试重新获取 last_path 信息
+                         final_info = self.get_file_info(last_path)
                     
-        init.logger.info(f"目录[{path}]创建成功！")
+                    if final_info:
+                        parent_id = final_info.get('file_id') or final_info.get('cid')
+                    else:
+                        init.logger.error(f"无法获取父目录信息: {last_path}")
+                        return None
+                
+                # 解析目录名
+                name = os.path.basename(item)
+                if index == 0 and item.startswith("/") and not name: 
+                    # item 可能就是 "/" 或者 "/foo"
+                    # 这里假设 path_list 里的 item 都是完整路径
+                    pass
+                if not name and index == 0: # 处理特殊情况
+                     name = item.strip("/")
+                
+                created_res = self.create_directory(parent_id, name)
+                
+                current_info = None
+                
+                if isinstance(created_res, dict):
+                    current_info = created_res
+                    if 'file_id' not in current_info and 'cid' in current_info:
+                        current_info['file_id'] = current_info['cid']
+                elif created_res is True:
+                    # 目录已存在 (code 20004)，但 get_file_info 没查到
+                    init.logger.info(f"目录已存在但未获取到信息，尝试从父目录列表查找: {item}")
+                    try:
+                        file_list_data = self.get_file_list({'cid': parent_id, 'limit': 1000})
+                        file_list = []
+                        if isinstance(file_list_data, list):
+                            file_list = file_list_data
+                        elif isinstance(file_list_data, dict):
+                            file_list = file_list_data.get('list', []) or file_list_data.get('data', [])
+                        
+                        for f in file_list:
+                            fname = f.get('n') or f.get('file_name') or f.get('name')
+                            if fname == name:
+                                current_info = f
+                                if 'file_id' not in current_info:
+                                    current_info['file_id'] = current_info.get('cid') or current_info.get('fid')
+                                break
+                    except Exception as e:
+                        init.logger.warn(f"从父目录查找失败: {e}")
+                
+                if current_info:
+                    final_info = current_info
+                    # 关键：更新缓存！
+                    self.file_info_cache[item] = final_info
+                    last_path = item
+                    init.logger.info(f"目录[{item}]检查/创建/获取成功, ID: {final_info.get('file_id')}")
+                else:
+                    init.logger.error(f"创建目录后无法获取其信息: {item}")
+                    return None
+                    
+                time.sleep(1)
+                    
+        init.logger.info(f"目录[{path}]处理完成！")
+        return final_info
+        
+    
+    def check_risk(self):
+        self.request_count += 1
+        if self.lifetime_vip:
+            request_risk_value = 15000 * RISK_THRESHOLD
+        else:
+            request_risk_value = 10000 * RISK_THRESHOLD
+        if self.request_count >= request_risk_value:
+            init.logger.warn("今日请求次数即将达到风险阈值，自动停止所有115请求，以免被风控...")
+            return True
+        return False
 
         
             
@@ -1282,8 +1497,7 @@ if __name__ == "__main__":
     # else:
     #     for dir in empty_dir_list:
     #         init.logger.info(f"找到空目录: {dir['fn']}")
-    m3u8_url = app.get_file_play_url("/影视/电影/ForLei/脏局")
-    print(m3u8_url)
+    vedio_list = app.find_all_voideos("/AV/涩花/无码破解")
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

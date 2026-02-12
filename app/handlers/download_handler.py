@@ -202,15 +202,16 @@ def is_valid_link(link: str) -> DownloadUrlType:
 
 
 def create_strm_file(new_name, file_list):
+    strm_mode = init.bot_config.get('strm_mode', 'none')
     # 检查是否需要创建软链
-    if not init.bot_config['create_strm']:
+    if strm_mode == "disable":
         return
     try:
         init.logger.debug(f"Original new_name: {new_name}")
 
         # 获取根目录
-        cd2_mount_root = Path(init.bot_config['mount_root'])
-        strm_root = Path(init.bot_config['strm_root'])
+        cd2_mount_root = Path(init.bot_config.get('mount_root', '/CloudNAS/115'))
+        strm_root = Path(init.bot_config.get('strm_root', '/media/115'))
 
         # 构建目标路径和 .strm 文件的路径
         relative_path = Path(new_name).relative_to(Path(new_name).anchor)
@@ -230,7 +231,10 @@ def create_strm_file(new_name, file_list):
         # 遍历文件列表，创建 .strm 文件
         for file in file_list:
             target_file = strm_path / (Path(file).stem + ".strm")
-            mkv_file = cd2_mount_path / file
+            if strm_mode == "strm_local":
+                mkv_file = cd2_mount_path / file
+            else:
+                mkv_file = Path(init.bot_config.get('openlist_root', '/115')) / relative_path / (Path(file))
 
             # 日志输出以验证 .strm 文件和目标文件
             init.logger.debug(f"target_file (.strm): {target_file}")
@@ -399,7 +403,7 @@ def download_task(link, selected_path, user_id):
                             message=f"❌ 下载任务执行出错: {escape_markdown(str(e), version=2)}")
     finally:
         # 清除云端任务，避免重复下载
-        init.openapi_115.clear_cloud_task()
+        init.openapi_115.del_offline_task(info_hash, del_source_file=0)
 
 
 async def handle_manual_rename_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

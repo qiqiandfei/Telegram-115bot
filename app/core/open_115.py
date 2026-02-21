@@ -506,8 +506,25 @@ class OpenAPI_115:
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
             init.logger.info(f"文件重命名成功: [{old_name}] -> [{new_name}]")
+            
+            # 1. 清除旧名称缓存
             if old_name in self.file_info_cache:
                 del self.file_info_cache[old_name]
+            
+            # 2. 关键修复：清除新名称可能存在的全部缓存
+            # 避免因缓存了旧同名目录的ID，导致get_files_from_dir获取到错误的文件列表
+            try:
+                # 获取父目录
+                parent_dir = str(Path(old_name).parent)
+                full_new_path = f"{parent_dir}/{new_name}"
+                
+                # 如果新路径在缓存中（可能是旧的ID），必须清除
+                if full_new_path in self.file_info_cache:
+                    init.logger.info(f"发现新名称[{full_new_path}]的脏缓存，正在清除...")
+                    del self.file_info_cache[full_new_path]
+            except Exception as e:
+                init.logger.warn(f"清除新名称缓存异常: {e}")
+                
             return True
         else:
             init.logger.warn(f"文件重命名失败: {response['message']}")
@@ -526,8 +543,23 @@ class OpenAPI_115:
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
             init.logger.info(f"文件重命名成功: [{old_name}] -> [{new_name}]")
+            
+            # 1. 清除旧名称缓存
             if old_name in self.file_info_cache:
                 del self.file_info_cache[old_name]
+            
+            # 2. 清除新名称缓存（防止脏数据）
+            try:
+                # 尝试推断父目录（虽然rename_by_id不一定能准确拿到父path，但如果有old_name是全路径则可以）
+                if "/" in old_name:
+                    parent_dir = str(Path(old_name).parent)
+                    full_new_path = f"{parent_dir}/{new_name}"
+                    if full_new_path in self.file_info_cache:
+                        init.logger.info(f"同时清除新名称[{full_new_path}]的缓存")
+                        del self.file_info_cache[full_new_path]
+            except Exception as e:
+                init.logger.warn(f"清除新名称缓存异常: {e}")
+                
             return True
         else:
             init.logger.warn(f"文件重命名失败: {response['message']}")
@@ -554,14 +586,25 @@ class OpenAPI_115:
     def create_directory(self, pid, file_name):
         """创建目录"""
         url = f"{self.base_url}/open/folder/add"
+        # 恢复使用 file_name，因为之前是工作的
         data = {
             "pid": pid,
             "file_name": file_name,
         }
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         
-        if isinstance(response, dict) and response.get('code') == 0:
+        # 兼容两种判断方式
+        if isinstance(response, dict) and (response.get('state') == True or response.get('code') == 0):
             init.logger.info(f"目录创建成功: {file_name}")
+            
+            # 刷新可能存在的缓存：
+            # 1. 如果我们能根据 pid 反推父目录路径，应该清理父目录路径下 file_name 的缓存
+            #    但这里只有 pid，很难反推路径。只能假设调用方会重新获取。
+            # 2. 如果之前尝试访问过该目录但失败（虽然我们目前没缓存失败结果），
+            #    或者该目录曾存在->删除->重建，那么缓存中的旧 ID 必须清除。
+            #    由于无法根据 pid 轻易拼出完整路径，这里无法像 rename 那样精确清除。
+            #    建议调用 create_directory 的地方，如果涉及到完整路径的缓存，手动清除。
+            
             return response.get('data') or True
         elif response.get('code') == 20004:
             init.logger.info(f"目录已存在: {file_name}")
@@ -630,9 +673,10 @@ class OpenAPI_115:
         file_info = self.get_file_info(path)
         if not file_info:
             return None
+        file_id = file_info['file_id']
         url = f"{self.base_url}/open/ufile/delete"
         data = {
-            "file_ids": [file_info['file_id']]
+            "file_ids": file_id
         }
         response = self._make_api_request('POST', url, data=data, headers=self._get_headers())
         if response['state'] == True:
@@ -875,9 +919,31 @@ class OpenAPI_115:
         
     def move_file(self, source_path, target_path):
         """移动文件或目录"""
+        # copy_file 实际上是把文件复制到 target_path 目录下
+        # 所以新文件的全路径是 target_path/basename(source_path)
+        
+        # 1. 执行复制
         copy_result = self.copy_file(source_path, target_path)
         if copy_result == True:
+            # 2. 清除目标位置可能存在的旧缓存（因为现在有了新文件）
+            try:
+                # 获取源文件/目录名称
+                msg_filename = os.path.basename(source_path.rstrip('/'))
+                
+                # 构造目标完整路径
+                target_path_clean = target_path.rstrip('/')
+                full_new_path = f"{target_path_clean}/{msg_filename}"
+                
+                if full_new_path in self.file_info_cache:
+                    init.logger.info(f"清除移动目标位置[{full_new_path}]的缓存")
+                    del self.file_info_cache[full_new_path]
+            except Exception as e:
+                init.logger.warn(f"清除移动目标缓存异常: {e}")
+
+            # 3. 执行删除源文件
+            # delete_single_file 内部已经处理了 source_path 的缓存清除
             delete_result = self.delete_single_file(source_path)
+            
             if delete_result == True:
                 return True
             else:
@@ -980,7 +1046,7 @@ class OpenAPI_115:
             video_list.append(file['fn'])
         return video_list
     
-    def get_sync_dir(self, path, offset=0, limit=1150):
+    def get_sync_dir(self, path, file_type=4, offset=0, limit=1150):
         """获取指定目录下的所有文件"""
         video_list = []
         file_info = self.get_file_info(path)
@@ -991,7 +1057,7 @@ class OpenAPI_115:
         # 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
         params = {
             "cid": file_info['file_id'],
-            "type": 4,
+            "type": file_type,
             "limit": limit,
             "offset": offset
         }
@@ -999,11 +1065,15 @@ class OpenAPI_115:
         if not file_list:
             init.logger.warn(f"目录 {path} 中没有找到视频文件")
             return video_list
-            
-        for file in file_list:
-            file_info = self.get_file_info_by_id(file['pid'])
-            folder_name = file_info['file_name']
-            video_list.append(f"{folder_name}/{file['fn']}")
+        
+        if len(file_list) >= limit:
+            offset += limit
+            self.get_sync_dir(path, file_type, offset, limit)
+        else:
+            for file in file_list:
+                file_info = self.get_file_info_by_id(file['pid'])
+                folder_name = file_info['file_name']
+                video_list.append(f"{folder_name}/{file['fn']}")
 
         return video_list
     
@@ -1202,17 +1272,26 @@ class OpenAPI_115:
         # 将当前页的文件添加到结果列表
         file_list.extend(current_files)
         
+        # 检查是否还有下一页
+        if len(current_files) < limit:
+             # 当前页不满limit，说明已经是最后一页了
+            junk_files = [f for f in file_list if int(f.get('fs', 0)) < byte_size]
+            return junk_files
+
         # 检查最后一个文件的大小
-        last_file_size = current_files[-1]['fs']
+        try:
+             last_file_size = int(current_files[-1].get('fs', 0))
+        except (ValueError, TypeError, IndexError):
+             last_file_size = 0
         
-        # 如果最后一个文件大小仍然小于目标大小，继续递归查找
+        # 如果最后一个文件大小仍然小于目标大小，且还有更多文件（上面已经判断了是否满页），继续递归查找
         if last_file_size < byte_size:
             offset += limit
-            time.sleep(5)  # 避免请求过快
+            time.sleep(1)  # 降低延时
             return self.find_all_junk_files(cid, offset, byte_size, file_list)
         else:
             # 已经找到所有小于目标大小的文件，过滤掉大于等于目标大小的文件
-            junk_files = [f for f in file_list if f['fs'] < byte_size]
+            junk_files = [f for f in file_list if int(f.get('fs', 0)) < byte_size]
             return junk_files
         
     def find_all_empty_dirs(self, pid_list):
@@ -1486,7 +1565,6 @@ def get_parent_paths(path):
     
     return result
 
-
 if __name__ == "__main__":
     init.init_log()
     init.load_yaml_config()
@@ -1497,7 +1575,7 @@ if __name__ == "__main__":
     # else:
     #     for dir in empty_dir_list:
     #         init.logger.info(f"找到空目录: {dir['fn']}")
-    vedio_list = app.find_all_voideos("/AV/涩花/无码破解")
+    vedio_list = app.get_sync_dir("/影视/电影/老电影")
     # app.offline_download_specify_path("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF", "/test")
     # time.sleep(10)
     # dl_flg, resource_name = app.check_offline_download_success_no_waite("magnet:?xt=urn:btih:2A93EFB4E2E8ED96B52207D9C5AA4FF2F7E8D9DF")

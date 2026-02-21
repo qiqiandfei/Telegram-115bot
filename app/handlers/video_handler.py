@@ -65,8 +65,8 @@ async def save_video2115(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 询问是否重命名
         keyboard = [
-            [InlineKeyboardButton("使用默认名称", callback_data=f"rename_default_{task_id}")],
-            [InlineKeyboardButton("自定义名称", callback_data=f"rename_custom_{task_id}")]
+            [InlineKeyboardButton("使用默认名称", callback_data=f"video_rename_default_{task_id}")],
+            [InlineKeyboardButton("自定义名称", callback_data=f"video_rename_custom_{task_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -117,7 +117,7 @@ async def show_directory_selection(update: Update, context: ContextTypes.DEFAULT
 
 async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理重命名输入"""
-    task_id = context.user_data.get('rename_task_id')
+    task_id = context.user_data.get('video_rename_task_id')
     if not task_id:
         return
 
@@ -132,7 +132,7 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
              
         video_info['file_name'] = new_name
         # 清除等待状态
-        del context.user_data['rename_task_id']
+        del context.user_data['video_rename_task_id']
         
         # 显示目录选择
         await show_directory_selection(update, context, task_id)
@@ -151,10 +151,14 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     parts = data.split('_')
     action = parts[0]
     
-    if action == "rename":
-        # 处理重命名选择: rename_default_taskId 或 rename_custom_taskId
-        sub_action = parts[1]
-        task_id = parts[2]
+    if action == "video" and len(parts) > 1 and parts[1] == "rename":
+        # 处理重命名选择: video_rename_default_taskId 或 video_rename_custom_taskId
+        # parts: ['video', 'rename', 'sub_action', 'task_id']
+        if len(parts) < 4:
+             return
+             
+        sub_action = parts[2]
+        task_id = parts[3]
         
         if sub_action == "default":
             # 使用默认名称，直接显示目录选择
@@ -162,7 +166,7 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
             
         elif sub_action == "custom":
             # 自定义名称，提示输入
-            context.user_data['rename_task_id'] = task_id
+            context.user_data['video_rename_task_id'] = task_id
             await query.edit_message_text("⌨️ 请输入新的文件名（无需后缀）：")
 
     elif action == "main":
@@ -330,7 +334,7 @@ def register_video_handlers(application):
     
     # 注册回调处理器
     # 添加 v_ 前缀支持，添加 rename 前缀支持
-    application.add_handler(CallbackQueryHandler(handle_category_selection, pattern="^(main|sub|back|cancel|quick|v|rename)_"))
+    application.add_handler(CallbackQueryHandler(handle_category_selection, pattern="^(main|sub|back|cancel|quick|v|video_rename)_"))
     
     init.logger.info("✅ Video处理器已注册")
     

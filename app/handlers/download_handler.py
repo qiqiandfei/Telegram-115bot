@@ -202,7 +202,7 @@ def is_valid_link(link: str) -> DownloadUrlType:
 
 
 def create_strm_file(new_name, file_list):
-    strm_mode = init.bot_config.get('strm_mode', 'none')
+    strm_mode = init.bot_config.get('strm_mode', 'disable')
     # 检查是否需要创建软链
     if strm_mode == "disable":
         return

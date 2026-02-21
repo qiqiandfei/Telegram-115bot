@@ -57,7 +57,7 @@ CRAWL_JAV_STATUS = 0    # javbee爬取状态
 # yaml配置文件
 CONFIG_FILE = "/config/config.yaml"
 # yaml配置文件示例
-CONFIG_FILE_EXAMPLE = "/config.yaml.example"
+CONFIG_FILE_EXAMPLE = "/config/config.yaml.example"
 # 抓取策略文件
 STRATEGY_FILE = "/config/crawling_strategy.yaml"
 # SessionFile
@@ -99,6 +99,7 @@ USER_AGENT = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like G
 # 调试用
 if debug_mode:
     CONFIG_FILE = "config/config.yaml"
+    CONFIG_FILE_EXAMPLE = "config/config.yaml.example"
     STRATEGY_FILE = "config/crawling_strategy.yaml"
     TG_SESSION_FILE = "config/user_session.session"
     DB_FILE = "config/db.db"
@@ -143,6 +144,14 @@ def load_yaml_config():
     """
     global bot_config, CONFIG_FILE, CONFIG_FILE_EXAMPLE, APP
     yaml_path = CONFIG_FILE
+    
+    example_config_path = f"{APP}/config.yaml.example"
+    # 尝试更新示例配置文件
+    try:
+        shutil.copy2(example_config_path, CONFIG_FILE_EXAMPLE)
+    except Exception as e:
+        print(f"Update config example file failed: {e}")
+
     # 获取yaml文件名称
     try:
         # 获取yaml文件路径
@@ -152,14 +161,11 @@ def load_yaml_config():
                 f.close()
             bot_config = yaml.load(cfg, Loader=yaml.FullLoader)
         else:
-            # 如果找不到配置文件，直接复制config.yaml.example到/config/config.yaml
-            example_config_path = f"{APP}/config.yaml.example"
             if os.path.exists(example_config_path):
                 # 确保目标目录存在
                 os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
                 # 复制示例配置文件
                 shutil.copy2(example_config_path, yaml_path)
-                shutil.copy2(example_config_path, CONFIG_FILE_EXAMPLE)
                 print(f"已复制示例配置文件到 {yaml_path}")
                 # 重新读取配置文件
                 with open(yaml_path, 'r', encoding='utf-8') as f:

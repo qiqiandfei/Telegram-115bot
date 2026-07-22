@@ -3,6 +3,8 @@ import asyncio
 import re
 import time
 import os
+import glob
+import shutil
 import requests
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +12,6 @@ from selenium.webdriver.common.by import By
 from selenium import webdriver
 import init
 from seleniumbase import SB
-import subprocess
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -19,6 +20,46 @@ from selenium.webdriver.support import expected_conditions as EC
 FLARESOLVERR_URL = os.getenv("FLARESOLVERR_URL", "http://flaresolverr:8191/v1")
 # 远程 Selenium 配置
 REMOTE_SELENIUM_URL = os.getenv("REMOTE_SELENIUM_URL", None)
+
+# javbus/sehua 目录用于存放业务数据，清理时必须排除
+_PROTECTED_TMP_DIRS = {"javbus", "sehua"}
+
+
+def _cleanup_chrome_tmp_files():
+    """清理 Chrome/SeleniumBase/undetected_chromedriver/Playwright 在临时目录下残留的垃圾文件。
+
+    之前的实现使用了 "/tmp/.com.google.Chrome*" 这样带前导点的匹配规则，
+    但实际产生的目录名并没有前导点 (例如 "com.google.Chrome.Wj8o3w"、
+    "com.google.Chrome.scoped_dir.74bhGH")，导致规则永远匹配不到，垃圾越积越多。
+    这里同时也遗漏了 seleniumbase 依赖内部使用的 "playwright-artifacts-*" 目录。
+    """
+    base = init.TEMP
+    patterns = [
+        ".com.google.Chrome*",
+        "com.google.Chrome*",       # 同时覆盖 com.google.Chrome.scoped_dir.*
+        ".org.chromium.Chromium*",
+        "org.chromium.Chromium*",
+        "chrome_*",                 # 同时覆盖 chrome_user_data
+        "seleniumbase_*",
+        ".selenium*",
+        "undetected_chromedriver*",
+        "rust_mozprofile*",
+        "playwright-artifacts-*",
+    ]
+    cleaned = 0
+    for pattern in patterns:
+        for path in glob.glob(os.path.join(base, pattern)):
+            if os.path.basename(path) in _PROTECTED_TMP_DIRS:
+                continue
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    os.remove(path)
+                cleaned += 1
+            except Exception:
+                pass
+    return cleaned
 
 class SeleniumBrowser:
     def __init__(self, base_url=None):
@@ -31,15 +72,11 @@ class SeleniumBrowser:
         await asyncio.get_running_loop().run_in_executor(self.executor, self._init_driver)
 
     def _init_driver(self):
-        # 保留 sehua 目录 (用于存放持久化数据)，删除其他所有内容
+        # 启动前先清理上一次残留的 Chrome/SeleniumBase 临时文件 (例如上次异常退出未清理干净的情况)
         try:
-            if os.path.exists(init.TEMP):
-                init.logger.info(f"正在清理临时目录: {init.TEMP}")
-                subprocess.run(
-                    f"rm -rf {os.path.join(init.TEMP, 'chrome_user_data')}", 
-                    shell=True, 
-                    stderr=subprocess.DEVNULL
-                )
+            cleaned = _cleanup_chrome_tmp_files()
+            if cleaned:
+                init.logger.info(f"启动前已清理 {cleaned} 个残留的 Chrome 临时目录/文件")
         except Exception as e:
             init.logger.warn(f"清理临时目录失败: {e}")
         # 0. 优先尝试远程 WebDriver (如果配置了)
@@ -170,6 +207,11 @@ class SeleniumBrowser:
                         pass
                     except Exception:
                         pass
+
+                # 4. 清理 Chrome/SeleniumBase/Playwright 在临时目录下产生的垃圾文件
+                cleaned = _cleanup_chrome_tmp_files()
+                if cleaned:
+                    init.logger.info(f"已清理 {cleaned} 个 Chrome 临时目录/文件")
 
             # 使用 executor 执行同步的清理操作
             await asyncio.get_running_loop().run_in_executor(

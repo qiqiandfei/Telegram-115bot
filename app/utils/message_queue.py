@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 
+import os
 import asyncio
 import init
 from telegram import Bot
+from telegram.request import HTTPXRequest
 from telegram.helpers import escape_markdown
 
 # 全局消息队列
@@ -38,8 +40,17 @@ async def queue_worker(loop, token):
     global global_loop
     """ 后台队列处理任务 """
     global_loop = loop
-    # bot
-    bot = Bot(token=token)
+    # bot：proxy仅在配置了HTTP_PROXY/HTTPS_PROXY时生效；keepalive_expiry避免长时间空闲后复用失效连接报502
+    import httpx
+    proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip() or None
+    request = HTTPXRequest(
+        connection_pool_size=8,
+        proxy=proxy,
+        connect_timeout=10,
+        pool_timeout=10,
+        httpx_kwargs={"limits": httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=15.0)},
+    )
+    bot = Bot(token=token, request=request)
     init.logger.info("消息队列线程启动成功！")
     while True:
         try:

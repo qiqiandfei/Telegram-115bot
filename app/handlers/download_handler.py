@@ -72,64 +72,81 @@ async def start_d_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_main_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    init.logger.info(f"select_main_category 收到回调: data={query.data!r}")
 
     query_data = query.data
-    if query_data == "cancel":
-        return await quit_conversation(update, context)
-    elif query_data == "last_save_path":
-        if hasattr(init, 'bot_session') and "movie_last_save" in init.bot_session:
-            last_save_path = init.bot_session["movie_last_save"]
-            link = context.user_data["link"]
-            user_id = update.effective_user.id
-            
-            await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
-            
-            # 使用全局线程池异步执行下载任务
-            download_executor.submit(download_task, link, last_save_path, user_id)
-            return ConversationHandler.END
+    try:
+        if query_data == "cancel":
+            return await quit_conversation(update, context)
+        elif query_data == "last_save_path":
+            if hasattr(init, 'bot_session') and "movie_last_save" in init.bot_session:
+                last_save_path = init.bot_session["movie_last_save"]
+                link = context.user_data["link"]
+                user_id = update.effective_user.id
+                
+                await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
+                
+                # 使用全局线程池异步执行下载任务
+                download_executor.submit(download_task, link, last_save_path, user_id)
+                return ConversationHandler.END
+            else:
+                await query.edit_message_text("❌ 未找到最后一次保存路径，请重新选择分类")
+                return ConversationHandler.END
         else:
-            await query.edit_message_text("❌ 未找到最后一次保存路径，请重新选择分类")
-            return ConversationHandler.END
-    else:
-        context.user_data["selected_main_category"] = query_data
-        sub_categories = [
-            item['path_map'] for item in init.bot_config["category_folder"] if item['name'] == query_data
-        ][0]
+            context.user_data["selected_main_category"] = query_data
+            matched = [
+                item['path_map'] for item in init.bot_config["category_folder"] if item['name'] == query_data
+            ]
+            if not matched:
+                init.logger.error(f"未在category_folder中找到匹配项: query_data={query_data!r}, 可用name={[item.get('name') for item in init.bot_config['category_folder']]}")
+                await query.edit_message_text("❌ 未找到对应的分类配置，请检查config.yaml后重试！")
+                return ConversationHandler.END
+            sub_categories = matched[0]
 
-        # 创建子分类按钮
-        keyboard = [
-            [InlineKeyboardButton(f"📁 {category['name']}", callback_data=category['path'])] for category in sub_categories
-        ]
-        keyboard.append([InlineKeyboardButton("取消", callback_data="cancel")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            # 创建子分类按钮
+            keyboard = [
+                [InlineKeyboardButton(f"📁 {category['name']}", callback_data=category['path'])] for category in sub_categories
+            ]
+            keyboard.append([InlineKeyboardButton("取消", callback_data="cancel")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await query.edit_message_text("❓请选择分类保存目录：", reply_markup=reply_markup)
+            await query.edit_message_text("❓请选择分类保存目录：", reply_markup=reply_markup)
 
-        return SELECT_SUB_CATEGORY
+            return SELECT_SUB_CATEGORY
+    except Exception as e:
+        init.logger.error(f"select_main_category 处理失败: {e}", exc_info=True)
+        await query.edit_message_text("❌ 处理分类选择时出错，请重新发送磁力链接！")
+        return ConversationHandler.END
 
 
 async def select_sub_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    init.logger.info(f"select_sub_category 收到回调: data={query.data!r}")
 
-    # 获取用户选择的路径
-    selected_path = query.data
-    # 保存最后一次选择路径
-    if not hasattr(init, 'bot_session'):
-        init.bot_session = {}
-    init.bot_session['movie_last_save'] = selected_path
-    
-    if selected_path == "cancel":
-        return await quit_conversation(update, context)
-    link = context.user_data["link"]
-    selected_main_category = context.user_data["selected_main_category"]
-    user_id = update.effective_user.id
-    
-    await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
-    
-    # 使用全局线程池异步执行下载任务
-    download_executor.submit(download_task, link, selected_path, user_id)
-    return ConversationHandler.END
+    try:
+        # 获取用户选择的路径
+        selected_path = query.data
+        # 保存最后一次选择路径
+        if not hasattr(init, 'bot_session'):
+            init.bot_session = {}
+        init.bot_session['movie_last_save'] = selected_path
+        
+        if selected_path == "cancel":
+            return await quit_conversation(update, context)
+        link = context.user_data["link"]
+        selected_main_category = context.user_data["selected_main_category"]
+        user_id = update.effective_user.id
+        
+        await query.edit_message_text("✅ 已为您添加到下载队列！\n请稍后~")
+        
+        # 使用全局线程池异步执行下载任务
+        download_executor.submit(download_task, link, selected_path, user_id)
+        return ConversationHandler.END
+    except Exception as e:
+        init.logger.error(f"select_sub_category 处理失败: {e}", exc_info=True)
+        await query.edit_message_text("❌ 处理保存目录时出错，请重新发送磁力链接！")
+        return ConversationHandler.END
 
 
 async def handle_retry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

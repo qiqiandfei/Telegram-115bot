@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 import time
 import asyncio
 import threading
 from telegram import Update, BotCommand
-from telegram.ext import ContextTypes, CommandHandler, Application
+from telegram.ext import ContextTypes, CommandHandler, Application, TypeHandler
+from telegram.request import HTTPXRequest
 from telegram.helpers import escape_markdown
 
 # 导入init模块（此时__init__.py已经设置了模块路径）
@@ -26,7 +28,7 @@ from app.handlers.rss_handler import register_rss_handlers
 
 
 def get_version(md_format=False):
-    version = "v3.4.4"
+    version = "v3.4.5"
     if md_format:
         return escape_markdown(version, version=2)
     return version
@@ -165,6 +167,39 @@ async def post_init(application):
     await set_bot_menu(application)
 
 
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    """全局错误处理器，避免异常仅被静默记录而无法感知问题"""
+    import traceback
+    error_details = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
+    init.logger.error(f"处理更新时发生异常: {context.error}\n{error_details}")
+
+
+async def log_raw_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """最先执行的原始更新日志，用于确认Telegram是否把该更新投递给了机器人（排查按钮点击无反应问题）"""
+    if update.callback_query:
+        init.logger.info(
+            f"[RAW UPDATE] callback_query: data={update.callback_query.data!r}, "
+            f"chat_id={update.effective_chat.id if update.effective_chat else None}, "
+            f"user_id={update.effective_user.id if update.effective_user else None}"
+        )
+
+
+def build_bot_request():
+    """构造Bot API请求客户端；proxy仅在配置了HTTP_PROXY/HTTPS_PROXY时生效，否则直连"""
+    import httpx
+    proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip() or None
+    return HTTPXRequest(
+        connection_pool_size=8,
+        proxy=proxy,
+        connect_timeout=10,
+        read_timeout=20,
+        write_timeout=20,
+        pool_timeout=10,
+        # 主动回收长时间空闲的keep-alive连接，避免复用到被网关判定为失效的连接而报502 Bad Gateway
+        httpx_kwargs={"limits": httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=15.0)},
+    )
+
+
 if __name__ == '__main__':
     init.init()
     # 启动消息队列
@@ -188,7 +223,18 @@ if __name__ == '__main__':
     # 调整telegram日志级别
     update_logger_level()
     token = init.bot_config['bot_token']
-    application = Application.builder().token(token).post_init(post_init).build()    
+    application = (
+        Application.builder()
+        .token(token)
+        .request(build_bot_request())
+        .get_updates_request(build_bot_request())
+        .concurrent_updates(4)  # 避免单个耗时任务（如网络抖动）阻塞其它按钮/命令的响应
+        .post_init(post_init)
+        .build()
+    )
+    application.add_error_handler(on_error)
+    # 优先级最高的原始回调日志，排查按钮点击是否真的被投递到了机器人
+    application.add_handler(TypeHandler(Update, log_raw_update), group=-1)
 
     # 启动帮助
     start_handler = CommandHandler('start', start)
@@ -242,7 +288,9 @@ if __name__ == '__main__':
         init.logger.info("订阅线程启动成功！")
         time.sleep(3)  # 等待订阅线程启动
         send_start_message()
-        application.run_polling()  # 阻塞运行
+        # 显式声明接收所有更新类型，避免Telegram服务端沿用此前setWebhook/getUpdates时限制的allowed_updates，
+        # 导致callback_query（按钮点击）等更新被服务端静默丢弃、机器人完全收不到
+        application.run_polling(allowed_updates=Update.ALL_TYPES)  # 阻塞运行
     except KeyboardInterrupt:
         init.logger.info("程序已被用户终止（Ctrl+C）。")
     except SystemExit:

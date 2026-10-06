@@ -56,6 +56,50 @@ def get_movie_cover(query, page=1):
     return cover_url
 
 
+def get_movie_cover_by_api(query, year=None):
+    """
+    通过TMDB API获取电影封面URL
+    API Key读取顺序: config.yaml 的 tmdb_api_key，其次环境变量 TMDB_API_KEY
+    同时支持 v3 API Key 和 v4 Read Access Token(Bearer)
+    :param query: 电影名称
+    :param year: 可选，上映年份
+    :return: 封面URL，失败返回空字符串
+    """
+    api_key = str(init.bot_config.get('tmdb_api_key', '')).strip()
+    if not api_key:
+        init.logger.warning("未配置TMDB API Key(tmdb_api_key)")
+        return ""
+    headers = {"accept": "application/json", "user-agent": init.USER_AGENT}
+    params = {"query": query, "language": "zh-CN", "include_adult": "false", "page": 1}
+    if year:
+        params["year"] = year
+    # v4 token 是JWT(以eyJ开头)，用Bearer；否则作为v3 api_key
+    if api_key.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        params["api_key"] = api_key
+    try:
+        response = requests.get("https://api.themoviedb.org/3/search/movie",
+                                headers=headers, params=params, timeout=15)
+        if response.status_code != 200:
+            init.logger.warn(f"TMDB API请求失败: {response.status_code}")
+            return ""
+        results = response.json().get("results", [])
+        if not results:
+            init.logger.info(f"TMDB未找到匹配电影: {query}")
+            return ""
+        # 优先标题完全匹配且有海报的结果，否则取第一个有海报的结果
+        with_poster = [r for r in results if r.get("poster_path")]
+        if not with_poster:
+            return ""
+        matched = next((r for r in with_poster
+                        if query in (r.get("title"), r.get("original_title"))), with_poster[0])
+        return f"https://image.tmdb.org/t/p/w500{matched['poster_path']}"
+    except Exception as e:
+        init.logger.error(f"TMDB API获取封面失败: {e}")
+        return ""
+
+
 # def get_av_cover(query):
 #     cover_url = ""
 #     headers = {"User-Agent": user_agent,
@@ -200,7 +244,7 @@ if __name__ == '__main__':
     # init.create_logger()
     # tmdb_id = get_tmdb_id("死人", 20)
     # print(f"TMDB ID: {tmdb_id}")
-    cover_url = get_movie_cover("死人", 20)
+    cover_url = get_movie_cover_by_api("沙漠战士")
     print(f"封面URL: {cover_url}")
     # init.load_yaml_config()
     # init.create_logger()

@@ -7,7 +7,7 @@ from pathlib import Path
 from app.utils.sqlitelib import *
 from app.handlers.download_handler import create_strm_file, notice_emby_scan_library
 from app.utils.message_queue import add_task_to_queue
-from app.utils.cover_capture import get_movie_cover
+from app.utils.cover_capture import get_movie_cover_by_api
 from telegram.helpers import escape_markdown
 
 
@@ -116,7 +116,7 @@ def search_update(tmdb_id):
 
 def update_sub_movie(tmdb_id, highest_score_item):
     movie_name = get_moive_name(tmdb_id)
-    post_url = get_movie_cover(movie_name)
+    post_url = get_movie_cover_by_api(movie_name)
     with SqlLiteLib() as sqlite:
         sql = "update sub_movie set download_url=?, post_url=?, size=? where is_delete = 0 and tmdb_id=?"
         params = (highest_score_item['download_url'], post_url, highest_score_item['size'], tmdb_id)

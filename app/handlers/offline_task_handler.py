@@ -10,7 +10,7 @@ from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
 from telegram.error import TelegramError
 from app.core.open_115 import RenameFailedError
-from app.utils.cover_capture import get_movie_cover
+from app.utils.cover_capture import get_movie_cover_by_api
 
 filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 
@@ -102,7 +102,7 @@ def try_to_offline2115_again():
                     cover_url = ""
                     
                     # 根据分类获取封面
-                    cover_url = get_movie_cover(title)
+                    cover_url = get_movie_cover_by_api(title)
                     
                     # 检查是否为订阅内容
                     from app.core.subscribe_movie import is_subscribe, update_subscribe

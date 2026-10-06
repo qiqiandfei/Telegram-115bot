@@ -9,7 +9,7 @@ import init
 import re
 import time
 from pathlib import Path
-from app.utils.cover_capture import get_movie_cover
+from app.utils.cover_capture import get_movie_cover_by_api
 from app.utils.message_queue import add_task_to_queue
 from app.utils.ai import get_movie_tmdb_name_with_ai
 import requests
@@ -527,7 +527,7 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         cover_url = ""
         
         # 根据分类获取封面
-        cover_url = get_movie_cover(new_resource_name)
+        cover_url = get_movie_cover_by_api(new_resource_name)
         
         # 检查是否为订阅内容
         from app.core.subscribe_movie import is_subscribe, update_subscribe

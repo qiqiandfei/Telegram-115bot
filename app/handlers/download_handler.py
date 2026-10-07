@@ -13,6 +13,7 @@ from app.utils.cover_capture import get_movie_cover_by_api
 from app.utils.message_queue import add_task_to_queue
 from app.utils.ai import get_movie_tmdb_name_with_ai
 import requests
+from textwrap import dedent
 from enum import Enum
 from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
@@ -527,36 +528,26 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         cover_url = ""
         
         # 根据分类获取封面
-        cover_url = get_movie_cover_by_api(new_resource_name)
-        
-        # 检查是否为订阅内容
-        from app.core.subscribe_movie import is_subscribe, update_subscribe
-        if is_subscribe(new_resource_name):
-            # 更新订阅信息
-            update_subscribe(new_resource_name, cover_url, download_url)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"💡订阅影片`{new_resource_name}`已手动下载成功\\！",
-                parse_mode='MarkdownV2'
-            )
+        movie_info = get_movie_cover_by_api(new_resource_name)
+        cover_url = movie_info["post_url"]
         
         # 通知Emby扫库
-        is_noticed = notice_emby_scan_library(new_final_path)
-        if is_noticed:
-            message = f"✅ 重命名成功：`{new_resource_name}`\n\n**👻 已通知Emby扫库，请稍后确认！**"
-        else:
-            message = f"✅ 重命名成功：`{new_resource_name}`\n\n**⚠️ 未能通知Emby，请先配置'EMBY API KEY'！**"
+        message = get_movie_notice(movie_info, new_final_path, new_resource_name)
         if cover_url:
             try:
                 init.logger.info(f"cover_url: {cover_url}")
-                
                 if not init.aria2_client:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id, 
-                        photo=cover_url, 
-                        caption=message,
-                        parse_mode='MarkdownV2'
-                    )
+                    try:
+                        # 发送通知给授权用户
+                        add_task_to_queue(
+                            init.bot_config['allowed_user'], 
+                            cover_url, 
+                            message=message
+                        )
+                    except TelegramError as e:
+                        init.logger.warn(f"Telegram API error: {e}")
+                    except Exception as e:
+                        init.logger.warn(f"Unexpected error: {e}")
                 else:
                     # 推送到aria2
                     push2aria2(new_final_path, cover_url, message, update.effective_chat.id)
@@ -567,9 +558,9 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             if not init.aria2_client:
                 await context.bot.send_message(
-                                                chat_id=update.effective_chat.id,
-                                                text=message,
-                                                parse_mode='MarkdownV2'
+                    chat_id=update.effective_chat.id,
+                    text=message,
+                    parse_mode='MarkdownV2'
                 )
             else:
                 # 推送到aria2
@@ -598,6 +589,32 @@ async def handle_manual_rename(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         # 出错时也清除数据，结束当前操作
         context.user_data.pop("rename_data", None)
+        
+        
+def get_movie_notice(movie_info: dict, new_final_path: str, new_resource_name: str) -> str:
+    is_noticed = notice_emby_scan_library(new_final_path)
+
+    # 1. 字段判空兜底处理
+    name = movie_info.get("movie_name") or "未知电影"
+    year = movie_info.get("year") or "未知年份"
+    brief = movie_info.get("brief") or "暂无简介"
+
+    # 2. 根据状态控制状态图标与提示文案
+    status_icon, status_msg = (
+        ("👻", "已通知Emby扫库，请稍后确认！")
+        if is_noticed
+        else ("⚠️", "未能通知Emby，请先配置'EMBY API KEY'！")
+    )
+
+    # 3. 使用 dedent 消除多行字符串前导缩进
+    message = dedent(f"""\
+        **电影名称:** `{name}`
+        **年份:** `{year}`
+        **简介:** `{brief}`
+        **✅ 重命名成功:** `{new_resource_name}`
+        **{status_icon} {status_msg}**
+    """)
+    return message
         
         
 def push2aria2(new_final_path, cover_url, message, user_id):

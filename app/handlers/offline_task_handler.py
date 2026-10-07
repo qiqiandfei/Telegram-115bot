@@ -102,7 +102,8 @@ def try_to_offline2115_again():
                     cover_url = ""
                     
                     # 根据分类获取封面
-                    cover_url = get_movie_cover_by_api(title)
+                    movie_info = get_movie_cover_by_api(title)
+                    cover_url = movie_info["post_url"]
                     
                     # 检查是否为订阅内容
                     from app.core.subscribe_movie import is_subscribe, update_subscribe

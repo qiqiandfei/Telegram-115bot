@@ -10,65 +10,36 @@ from bs4 import BeautifulSoup
 import init
 import asyncio
 import time
+from typing import TypedDict
 from app.core.selenium_browser import SeleniumBrowser
 
 
-def get_movie_cover(query, page=1):
-    """
-    封面抓取
-    :param query:
-    :return:
-    """
-    base_url = "https://www.themoviedb.org"
-    url = f"https://www.themoviedb.org/search/movie?query={query}&page={page}"
-    headers = {
-        "user-agent": init.USER_AGENT,
-        "accept-language": "zh-CN"
-    }
-    response = requests.get(headers=headers, url=url)
-    if response.status_code != 200:
-        return ""
-    soup = BeautifulSoup(response.text, features="html.parser")
-    tags_p = soup.find_all('p')
-    for tag in tags_p:
-        if "找不到和您的查询相符的电影" in tag.text:
-            init.logger.info(f"TMDB未找到匹配电影: {query}")
-            return ""
-    tags_img = soup.find_all('img')
-    image_tag = is_movie_exist(query, tags_img)
-    if image_tag is None:
-        page += 1
-        time.sleep(3)
-        return get_movie_cover(query, page)
-    tag_parent = image_tag.find_parent('a')
-    if 'href' not in tag_parent.attrs:
-        return ""
-    main_page = tag_parent['href']
-    url = base_url + main_page
-    response = requests.get(headers=headers, url=url)
-    if response.status_code != 200:
-        return ""
-    soup = BeautifulSoup(response.text, features="html.parser")
-    tags_img = soup.find_all('img')
-    if len(tags_img) > 1 and 'src' not in tags_img[1].attrs:
-        return ""
-    cover_url = tags_img[1]['src']
-    return cover_url
+class MovieInfo(TypedDict):
+    movie_name: str
+    year: int | None
+    brief: str
+    post_url: str
 
 
-def get_movie_cover_by_api(query, year=None):
+def get_movie_cover_by_api(query: str, year: int | None = None) -> MovieInfo:
     """
-    通过TMDB API获取电影封面URL
+    通过TMDB API获取电影名称、上映年份、简介和封面URL
     API Key读取顺序: config.yaml 的 tmdb_api_key，其次环境变量 TMDB_API_KEY
     同时支持 v3 API Key 和 v4 Read Access Token(Bearer)
     :param query: 电影名称
     :param year: 可选，上映年份
-    :return: 封面URL，失败返回空字符串
+    :return: 电影信息字典；请求失败或无结果时字段使用默认值
     """
+    movie_info = {
+        "movie_name": query,
+        "year": year,
+        "brief": "",
+        "post_url": "",
+    }
     api_key = str(init.bot_config.get('tmdb_api_key', '')).strip()
-    if not api_key:
+    if not api_key or api_key.lower() == "your_tmdb_api_key":
         init.logger.warning("未配置TMDB API Key(tmdb_api_key)")
-        return ""
+        return movie_info
     headers = {"accept": "application/json", "user-agent": init.USER_AGENT}
     params = {"query": query, "language": "zh-CN", "include_adult": "false", "page": 1}
     if year:
@@ -83,94 +54,29 @@ def get_movie_cover_by_api(query, year=None):
                                 headers=headers, params=params, timeout=15)
         if response.status_code != 200:
             init.logger.warn(f"TMDB API请求失败: {response.status_code}")
-            return ""
+            return movie_info
         results = response.json().get("results", [])
         if not results:
             init.logger.info(f"TMDB未找到匹配电影: {query}")
-            return ""
         # 优先标题完全匹配且有海报的结果，否则取第一个有海报的结果
         with_poster = [r for r in results if r.get("poster_path")]
-        if not with_poster:
-            return ""
-        matched = next((r for r in with_poster
-                        if query in (r.get("title"), r.get("original_title"))), with_poster[0])
-        return f"https://image.tmdb.org/t/p/w500{matched['poster_path']}"
+        candidates = with_poster or results
+        if not candidates:
+            return movie_info
+        matched = next((r for r in candidates
+                        if query in (r.get("title"), r.get("original_title"))), candidates[0])
+        release_date = matched.get("release_date") or ""
+        if isinstance(release_date, str) and release_date[:4].isdigit():
+            movie_info["year"] = int(release_date[:4])
+        movie_info["movie_name"] = matched.get("title") or matched.get("original_title") or query
+        movie_info["brief"] = matched.get("overview") or ""
+        if matched.get("poster_path"):
+            movie_info["post_url"] = f"https://image.tmdb.org/t/p/w500{matched['poster_path']}"
+        return movie_info
     except Exception as e:
         init.logger.error(f"TMDB API获取封面失败: {e}")
-        return ""
+        return movie_info
 
-
-# def get_av_cover(query):
-#     cover_url = ""
-#     headers = {"User-Agent": user_agent,
-#                "Cookie": "PHPSESSID=u0h9tqpcm7402cm4vlttoguf60; existmag=mag; age=verified; dv=1",
-#                "Upgrade-Insecure-Requests": "1"}
-#     response = requests.get(headers=headers, url=f"https://www.javbus.com/search/{query}")
-#     if response.status_code == 200:
-#         soup = BeautifulSoup(response.text, features="html.parser")
-#         container_fluid_div = soup.find_all('div', class_='container-fluid')
-#         row_div = container_fluid_div[1].find('div', class_='row')
-#         a_tags = row_div.find_all('a', class_='movie-box')
-#         for a_tag in a_tags:
-#             if 'href' in a_tag.attrs:  # 确保存在 href 属性
-#                 if query.lower() in str(a_tag['href']).lower():
-#                     img_tag = a_tag.find('img')
-#                     cover_url = f"https://www.javbus.com{img_tag['src']}"
-#                     break
-#     # 尝试搜索无码
-#     if response.status_code == 404:
-#         response = requests.get(headers=headers, url=f"https://www.javbus.com/uncensored/search/{query}")
-#         if response.status_code != 200:
-#             return ""
-#         soup = BeautifulSoup(response.text, features="html.parser")
-#         container_fluid_div = soup.find_all('div', class_='container-fluid')
-#         row_div = container_fluid_div[1].find('div', class_='row')
-#         a_tags = row_div.find_all('a', class_='movie-box')
-#         for a_tag in a_tags:
-#             if 'href' in a_tag.attrs:  # 确保存在 href 属性
-#                 if query.lower() in str(a_tag['href']).lower():
-#                     img_tag = a_tag.find('img')
-#                     cover_url = f"https://www.javbus.com{img_tag['src']}"
-#                     break
-#     return cover_url
-
-
-def is_movie_exist(movie_name, name_list):
-    """
-    判断搜索结果是否存在
-    :param url:
-    :param name_list:
-    :return:
-    """
-    img_tag = None
-    for name in name_list:
-        if 'alt' in name.attrs:
-            if name['alt'] == movie_name:
-                img_tag = name
-                break
-    return img_tag
-
-
-# def get_av_cover(query):
-#     title = ""
-#     cover_url = ""
-#     headers = {"user-agent": init.USER_AGENT,
-#                "referrer": "https://avbase.net"}
-#     response = requests.get(headers=headers, url=f"https://avbase.net/works?q={query}")
-#     soup = BeautifulSoup(response.text, 'html.parser')
-#     a_tag = soup.find('a', class_='text-md font-bold btn-ghost rounded-lg m-1 line-clamp-5')
-#     if a_tag:
-#         title = a_tag.get_text(strip=True)
-#         link = f"https://avbase.net{a_tag['href']}"
-#         response = requests.get(headers=headers, url=link)
-#         soup = BeautifulSoup(response.text, 'html.parser')
-#         img_tag = soup.find('img', class_='max-w-full max-h-full')
-#         if img_tag:
-#             cover_url = img_tag['src']
-#     if title and cover_url:
-#         return cover_url, title
-#     else:
-#         return "", ""
 
 def get_av_cover(query):
     title = f"[{query}]已下好，但源没抓到~"
@@ -242,10 +148,11 @@ def is_av_exist(div_list):
 
 if __name__ == '__main__':
     # init.create_logger()
+    init.load_yaml_config()
     # tmdb_id = get_tmdb_id("死人", 20)
     # print(f"TMDB ID: {tmdb_id}")
-    cover_url = get_movie_cover_by_api("沙漠战士")
-    print(f"封面URL: {cover_url}")
+    movie_info = get_movie_cover_by_api("沙漠战士")
+    print(f"电影信息: {movie_info}")
     # init.load_yaml_config()
     # init.create_logger()
     # cover_url, title = get_av_cover("ipz-466")

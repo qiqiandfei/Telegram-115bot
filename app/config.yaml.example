@@ -24,6 +24,10 @@ bot_name: "@your_bot_name"
 tg_api_id: your_tg_api_id
 tg_api_hash: your_tg_api_hash
 
+############################################TMDBAPI设置##################################
+tmdb_api_key: your_tmdb_api_key
+
+
 ############################################115开放平台##################################
 # 115_app_id 
 # 申请地址https://open.115.com/

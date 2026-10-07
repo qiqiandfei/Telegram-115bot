@@ -116,7 +116,12 @@ def search_update(tmdb_id):
 
 def update_sub_movie(tmdb_id, highest_score_item):
     movie_name = get_moive_name(tmdb_id)
-    post_url = get_movie_cover_by_api(movie_name)
+    if movie_name:
+        movie_info = get_movie_cover_by_api(movie_name)
+        post_url = movie_info["post_url"]
+    else:
+        init.logger.warning(f"未找到订阅影片名称，跳过封面查询: {tmdb_id}")
+        post_url = ""
     with SqlLiteLib() as sqlite:
         sql = "update sub_movie set download_url=?, post_url=?, size=? where is_delete = 0 and tmdb_id=?"
         params = (highest_score_item['download_url'], post_url, highest_score_item['size'], tmdb_id)
